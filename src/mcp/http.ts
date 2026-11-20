@@ -5,6 +5,7 @@ import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { createMcpServer, type McpServerOptions } from './server.js';
 import { verifyAccessToken } from '../oauth/jwt.js';
+import type { SubscriptionManager } from '../services/subscription-manager.js';
 
 export interface McpHttpOptions {
   groupService: McpServerOptions['groupService'];
@@ -13,6 +14,7 @@ export interface McpHttpOptions {
   jwtSecret: Uint8Array;
   resource: string;
   requireAuth?: boolean;
+  subscriptionManager?: SubscriptionManager;
 }
 
 export function wwwAuthenticate(publicUrl: string, error?: string): string {
@@ -76,6 +78,7 @@ export async function mountMcpHttp(app: FastifyInstance, options: McpHttpOptions
       groupService: options.groupService,
       imageService: options.imageService,
       publicUrl: options.publicUrl,
+      subscriptionManager: options.subscriptionManager,
     });
     const transport = new StreamableHTTPServerTransport({});
     await server.connect(transport as unknown as Transport);

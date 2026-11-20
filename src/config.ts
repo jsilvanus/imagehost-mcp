@@ -33,6 +33,18 @@ const configSchema = z.object({
   imageMaxPixels: z.coerce.number().default(50000000), // 50 MP
   defaultDeletionRetentionHours: z.coerce.number().default(72),
   signedUrlTtlSeconds: z.coerce.number().default(3600),
+
+  // Workers & Schedulers
+  retentionWorkerIntervalSeconds: z.coerce.number().default(60),
+  enableRetentionWorker: z
+    .string()
+    .transform((v) => v === 'true' || v === '1')
+    .default('true'),
+  outboxDispatcherIntervalMs: z.coerce.number().default(2000),
+  enableOutboxDispatcher: z
+    .string()
+    .transform((v) => v === 'true' || v === '1')
+    .default('true'),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -58,5 +70,9 @@ export function loadConfig(): Config {
     imageMaxPixels: process.env.IMAGE_MAX_PIXELS,
     defaultDeletionRetentionHours: process.env.DEFAULT_DELETION_RETENTION_HOURS,
     signedUrlTtlSeconds: process.env.SIGNED_URL_TTL_SECONDS,
+    retentionWorkerIntervalSeconds: process.env.RETENTION_WORKER_INTERVAL_SECONDS,
+    enableRetentionWorker: process.env.ENABLE_RETENTION_WORKER,
+    outboxDispatcherIntervalMs: process.env.OUTBOX_DISPATCH_INTERVAL_MS,
+    enableOutboxDispatcher: process.env.ENABLE_OUTBOX_DISPATCHER,
   });
 }

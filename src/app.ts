@@ -5,6 +5,9 @@ import sensible from '@fastify/sensible';
 import fastifyStatic from '@fastify/static';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { sql } from 'drizzle-orm';
+import { db } from './db/index.js';
 import type { Config } from './config.js';
 import { SessionService } from './auth/session.js';
 import { OidcClientService } from './auth/oidc.js';
@@ -13,6 +16,9 @@ import { S3StorageService } from './storage/s3.js';
 import { ImageProcessor } from './services/image-processor.js';
 import { GroupService } from './services/group-service.js';
 import { ImageService } from './services/image-service.js';
+import type { SubscriptionManager } from './services/subscription-manager.js';
+import type { OutboxDispatcher } from './services/outbox-dispatcher.js';
+import type { RetentionWorker } from './workers/retention-worker.js';
 import {
   mountOAuthMetadata,
   mountAuthorizationServer,
@@ -32,6 +38,10 @@ export interface AppContext {
   processor: ImageProcessor;
   groupService: GroupService;
   imageService: ImageService;
+  subscriptionManager?: SubscriptionManager;
+  outboxDispatcher?: OutboxDispatcher;
+  retentionWorker?: RetentionWorker;
+  dbProbe?: () => Promise<void>;
   authStore?: AuthStore;
   userStore?: UserStore;
   authorizationOptions?: AuthorizationServerOptions;
@@ -50,7 +60,32 @@ declare module 'fastify' {
 }
 
 export function buildApp(ctx: AppContext): FastifyInstance {
-  const app = Fastify({ logger: ctx.config.nodeEnv !== 'test' });
+  const isProd = ctx.config.nodeEnv === 'production';
+  const isTest = ctx.config.nodeEnv === 'test';
+
+  const app = Fastify({
+    requestIdHeader: 'x-request-id',
+    genReqId: (req) => (req.headers['x-request-id'] as string) || randomUUID(),
+    logger: isTest
+      ? false
+      : isProd
+        ? {
+            level: process.env.LOG_LEVEL || 'info',
+            formatters: {
+              level: (label) => ({ level: label }),
+            },
+          }
+        : {
+            level: process.env.LOG_LEVEL || 'info',
+            transport: {
+              target: 'pino-pretty',
+              options: {
+                translateTime: 'HH:MM:ss Z',
+                ignore: 'pid,hostname',
+              },
+            },
+          },
+  });
 
   app.register(sensible);
   app.register(cors, {
@@ -75,8 +110,29 @@ export function buildApp(ctx: AppContext): FastifyInstance {
     },
   );
 
-  // Health check
-  app.get('/healthz', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+  // Health check with DB probe
+  app.get('/healthz', async (req, reply) => {
+    try {
+      if (ctx.dbProbe) {
+        await ctx.dbProbe();
+      } else {
+        await db.execute(sql`SELECT 1`);
+      }
+      return reply.code(200).send({
+        status: 'ok',
+        database: 'connected',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      req.log?.error?.(err, 'Healthcheck DB probe failed');
+      return reply.code(503).send({
+        status: 'degraded',
+        database: 'disconnected',
+        error: err.message || 'Database connection error',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
 
   // OpenAPI spec
   app.get('/openapi.yaml', async (req, reply) => {
@@ -394,15 +450,13 @@ export function buildApp(ctx: AppContext): FastifyInstance {
     return { results };
   });
 
-  app.get<{ Querystring: { after?: number; limit?: number } }>(
+  app.get<{ Querystring: { after?: number | string; limit?: number | string } }>(
     '/v1/changes',
     { preHandler: [requireAuth] },
     async (req) => {
-      return await ctx.imageService.getChanges(
-        req.user!.userId,
-        req.query.after ?? 0,
-        req.query.limit ?? 100,
-      );
+      const afterCursor = req.query.after !== undefined ? Number(req.query.after) : 0;
+      const limit = req.query.limit !== undefined ? Number(req.query.limit) : 100;
+      return await ctx.imageService.getChanges(req.user!.userId, afterCursor, limit);
     },
   );
 
@@ -427,6 +481,7 @@ export function buildApp(ctx: AppContext): FastifyInstance {
     await mountMcpHttp(mcpApp, {
       groupService: ctx.groupService,
       imageService: ctx.imageService,
+      subscriptionManager: ctx.subscriptionManager,
       publicUrl,
       jwtSecret,
       resource,

@@ -1,6 +1,14 @@
 import { eq, and, sql, desc, inArray, isNull } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { images, imageVariants, tags, imageTags, eventOutbox, groups } from '../db/schema.js';
+import {
+  images,
+  imageVariants,
+  tags,
+  imageTags,
+  eventOutbox,
+  groups,
+  auditLog,
+} from '../db/schema.js';
 import type {
   ImageModel,
   VariantType,
@@ -475,27 +483,41 @@ export class ImageService {
     const now = new Date();
     const deadline = new Date(now.getTime() + retentionHours * 3600 * 1000);
 
-    const [updated] = await db
-      .update(images)
-      .set({
-        deletionState: 'pending_deletion',
-        deletionRequestedAt: now,
-        deletionDeadline: deadline,
-        deletionRequestedBy: requestedBy,
-        updatedAt: now,
-      })
-      .where(and(eq(images.id, imageId), eq(images.ownerId, ownerId)))
-      .returning();
+    await db.transaction(async (tx) => {
+      await tx
+        .update(images)
+        .set({
+          deletionState: 'pending_deletion',
+          deletionRequestedAt: now,
+          deletionDeadline: deadline,
+          deletionRequestedBy: requestedBy,
+          updatedAt: now,
+        })
+        .where(and(eq(images.id, imageId), eq(images.ownerId, ownerId)));
 
-    await db.insert(eventOutbox).values({
-      eventType: 'image.deletion.requested',
-      ownerId,
-      groupId: image.groupId,
-      imageId: image.id,
-      payload: {
-        deletionDeadline: deadline.toISOString(),
-        requestedBy,
-      },
+      await tx.insert(eventOutbox).values({
+        eventType: 'image.deletion.requested',
+        ownerId,
+        groupId: image.groupId,
+        imageId: image.id,
+        payload: {
+          deletionDeadline: deadline.toISOString(),
+          requestedBy,
+        },
+      });
+
+      await tx.insert(auditLog).values({
+        userId: ownerId,
+        action: 'image.deletion_requested',
+        targetType: 'image',
+        targetId: image.id,
+        details: {
+          sequenceNumber: image.sequenceNumber,
+          groupId: image.groupId,
+          deletionDeadline: deadline.toISOString(),
+        },
+        actorType: requestedBy,
+      });
     });
 
     return await this.getImage(ownerId, imageId);
@@ -505,26 +527,45 @@ export class ImageService {
    * Restore a pending-deletion image before its deadline
    */
   async restoreImage(ownerId: string, imageId: string): Promise<ImageModel | null> {
-    const [updated] = await db
-      .update(images)
-      .set({
-        deletionState: 'active',
-        deletionRequestedAt: null,
-        deletionDeadline: null,
-        deletionRequestedBy: null,
-        updatedAt: new Date(),
-      })
+    const [existing] = await db
+      .select()
+      .from(images)
       .where(and(eq(images.id, imageId), eq(images.ownerId, ownerId)))
-      .returning();
+      .limit(1);
 
-    if (!updated) return null;
+    if (!existing) return null;
 
-    await db.insert(eventOutbox).values({
-      eventType: 'image.restored',
-      ownerId,
-      groupId: updated.groupId,
-      imageId: updated.id,
-      payload: { imageId: updated.id },
+    await db.transaction(async (tx) => {
+      await tx
+        .update(images)
+        .set({
+          deletionState: 'active',
+          deletionRequestedAt: null,
+          deletionDeadline: null,
+          deletionRequestedBy: null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(images.id, imageId), eq(images.ownerId, ownerId)));
+
+      await tx.insert(eventOutbox).values({
+        eventType: 'image.restored',
+        ownerId,
+        groupId: existing.groupId,
+        imageId: existing.id,
+        payload: { imageId: existing.id },
+      });
+
+      await tx.insert(auditLog).values({
+        userId: ownerId,
+        action: 'image.restored',
+        targetType: 'image',
+        targetId: existing.id,
+        details: {
+          sequenceNumber: existing.sequenceNumber,
+          groupId: existing.groupId,
+        },
+        actorType: 'user',
+      });
     });
 
     return await this.getImage(ownerId, imageId);

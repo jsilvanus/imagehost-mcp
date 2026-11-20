@@ -1,9 +1,26 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { db, sqlClient } from './index.js';
 
+export function getMigrationsFolder(): string {
+  const candidates = [
+    join(process.cwd(), 'dist', 'db', 'migrations'),
+    join(process.cwd(), 'src', 'db', 'migrations'),
+    join(process.cwd(), 'drizzle'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return './src/db/migrations';
+}
+
 export async function runMigrations() {
-  console.log('Running database migrations...');
-  await migrate(db, { migrationsFolder: './src/db/migrations' });
+  const migrationsFolder = getMigrationsFolder();
+  console.log(`Running database migrations from ${migrationsFolder}...`);
+  await migrate(db, { migrationsFolder });
   console.log('Migrations completed successfully.');
 }
 

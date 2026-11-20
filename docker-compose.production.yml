@@ -1,0 +1,80 @@
+# Production compose file for ImageHost MCP behind Traefik
+# Follows the shared infra conventions (networks: traefik-public, shared_multi_network)
+
+x-app-env: &app-env
+  NODE_ENV: production
+  HOST: 0.0.0.0
+  PORT: 3000
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to your external Postgres}
+  S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT (e.g. VersityGW / S3)}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+  BASE_URL: ${BASE_URL:?set BASE_URL (https://<domain>)}
+  OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:?set OIDC_ISSUER_URL (Tunnus)}
+  OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:?set OIDC_CLIENT_ID}
+  OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+  SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
+  RETENTION_WORKER_INTERVAL_SECONDS: ${RETENTION_WORKER_INTERVAL_SECONDS:-60}
+  ENABLE_RETENTION_WORKER: ${ENABLE_RETENTION_WORKER:-true}
+  ENABLE_OUTBOX_DISPATCHER: ${ENABLE_OUTBOX_DISPATCHER:-true}
+  OUTBOX_DISPATCH_INTERVAL_MS: ${OUTBOX_DISPATCH_INTERVAL_MS:-2000}
+  IMAGE_MAX_UPLOAD_BYTES: ${IMAGE_MAX_UPLOAD_BYTES:-26214400}
+  IMAGE_MAX_PIXELS: ${IMAGE_MAX_PIXELS:-50000000}
+
+services:
+  migrate:
+    image: ghcr.io/${GITHUB_REPOSITORY:-jsilvanus/imagehost-mcp}:${IMAGE_TAG:-latest}
+    command: ['node', 'dist/db/migrate.js']
+    restart: 'no'
+    environment:
+      <<: *app-env
+    networks:
+      - shared_multi_network
+
+  app:
+    image: ghcr.io/${GITHUB_REPOSITORY:-jsilvanus/imagehost-mcp}:${IMAGE_TAG:-latest}
+    container_name: imagehost-mcp-app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+    networks:
+      - default
+      - traefik-public
+      - shared_multi_network
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: traefik-public
+      traefik.http.routers.imagehost-mcp.rule: Host(`${DOMAIN:?set DOMAIN}`) && PathPrefix(`${DOMAIN_PATH:-/}`)
+      traefik.http.routers.imagehost-mcp.middlewares: imagehost-mcp-strip
+      traefik.http.middlewares.imagehost-mcp-strip.stripprefix.prefixes: ${DOMAIN_PATH:-/}
+      traefik.http.routers.imagehost-mcp.entrypoints: websecure
+      traefik.http.routers.imagehost-mcp.tls.certresolver: letsencrypt
+      traefik.http.services.imagehost-mcp.loadbalancer.server.port: '3000'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/healthz').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+networks:
+  default:
+  traefik-public:
+    external: true
+    name: traefik-public
+  shared_multi_network:
+    external: true
+    name: shared_multi_network

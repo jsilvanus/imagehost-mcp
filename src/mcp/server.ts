@@ -1,13 +1,16 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
-import type {
-  ServerNotification,
-  ServerRequest,
-  CallToolResult,
+import {
+  type ServerNotification,
+  type ServerRequest,
+  type CallToolResult,
+  SubscribeRequestSchema,
+  UnsubscribeRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import type { GroupService } from '../services/group-service.js';
 import type { ImageService } from '../services/image-service.js';
+import type { SubscriptionManager } from '../services/subscription-manager.js';
 
 type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 
@@ -15,6 +18,7 @@ export interface McpServerOptions {
   groupService: GroupService;
   imageService: ImageService;
   publicUrl: string;
+  subscriptionManager?: SubscriptionManager;
 }
 
 function result(value: unknown): CallToolResult {
@@ -91,12 +95,78 @@ function checkResourceAuth(extra: Extra, requiredScope: string): string {
 }
 
 export function createMcpServer(options: McpServerOptions): McpServer {
-  const server = new McpServer({
-    name: 'imagehost-mcp',
-    version: '0.1.0',
-  });
+  const server = new McpServer(
+    {
+      name: 'imagehost-mcp',
+      version: '0.1.0',
+    },
+    {
+      capabilities: {
+        resources: {
+          subscribe: true,
+          listChanged: true,
+        },
+      },
+    },
+  );
 
-  const { groupService, imageService, publicUrl } = options;
+  const { groupService, imageService, publicUrl, subscriptionManager } = options;
+
+  // Resource Subscriptions
+  if (subscriptionManager) {
+    server.server.setRequestHandler(SubscribeRequestSchema, async (request, extra) => {
+      const uri = request.params.uri;
+      const auth = extra.authInfo;
+      if (!auth?.token) {
+        throw new Error('Authentication required to subscribe');
+      }
+      const userId = auth.extra?.userId;
+      if (!userId || typeof userId !== 'string') {
+        throw new Error('Missing user context in authorization token');
+      }
+
+      // Check URI authorization
+      if (uri.startsWith('photo://groups/')) {
+        const parts = uri.replace('photo://groups/', '').split('/');
+        const groupId = parts[0];
+        if (groupId && groupId !== 'images') {
+          const group = await groupService.getGroup(userId, groupId);
+          if (!group) {
+            throw new Error(`Group not found or access denied: ${groupId}`);
+          }
+        }
+      } else if (uri.startsWith('photo://images/')) {
+        const parts = uri.replace('photo://images/', '').split('/');
+        const imageId = parts[0];
+        if (imageId) {
+          const image = await imageService.getImage(userId, imageId);
+          if (!image) {
+            throw new Error(`Image not found or access denied: ${imageId}`);
+          }
+        }
+      }
+
+      subscriptionManager.subscribe(userId, uri, async (updatedUri) => {
+        try {
+          await server.server.sendResourceUpdated({ uri: updatedUri });
+        } catch {
+          // Client may have disconnected
+        }
+      });
+
+      return {};
+    });
+
+    server.server.setRequestHandler(UnsubscribeRequestSchema, async (request, extra) => {
+      const uri = request.params.uri;
+      const auth = extra.authInfo;
+      const userId = auth?.extra?.userId;
+      if (userId && typeof userId === 'string') {
+        subscriptionManager.unsubscribeUri(userId, uri);
+      }
+      return {};
+    });
+  }
 
   // =========================================================================
   // RESOURCES

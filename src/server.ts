@@ -5,7 +5,11 @@ import { S3StorageService } from './storage/s3.js';
 import { ImageProcessor } from './services/image-processor.js';
 import { GroupService } from './services/group-service.js';
 import { ImageService } from './services/image-service.js';
+import { SubscriptionManager } from './services/subscription-manager.js';
+import { OutboxDispatcher } from './services/outbox-dispatcher.js';
+import { RetentionWorker } from './workers/retention-worker.js';
 import { buildApp } from './app.js';
+import { sqlClient } from './db/index.js';
 
 async function main() {
   const config = loadConfig();
@@ -16,6 +20,13 @@ async function main() {
   const processor = new ImageProcessor(config.imageMaxPixels);
   const groupService = new GroupService();
   const imageService = new ImageService(storageService, processor, groupService);
+
+  const subscriptionManager = new SubscriptionManager();
+  const outboxDispatcher = new OutboxDispatcher(subscriptionManager);
+  const retentionWorker = new RetentionWorker(
+    storageService,
+    config.retentionWorkerIntervalSeconds,
+  );
 
   // Auto-ensure S3 bucket exists
   await storageService.ensureBucket().catch((err) => {
@@ -30,7 +41,32 @@ async function main() {
     processor,
     groupService,
     imageService,
+    subscriptionManager,
+    outboxDispatcher,
+    retentionWorker,
   });
+
+  // Start background schedulers if enabled
+  if (config.enableRetentionWorker) {
+    retentionWorker.start();
+  }
+  if (config.enableOutboxDispatcher) {
+    outboxDispatcher.start(config.outboxDispatcherIntervalMs);
+  }
+
+  // Graceful shutdown handling
+  const gracefulShutdown = async (signal: string) => {
+    console.log(`Received ${signal}, initiating graceful shutdown...`);
+    retentionWorker.stop();
+    outboxDispatcher.stop();
+    await app.close();
+    await sqlClient.end();
+    console.log('Cleanup finished, process exiting.');
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
   try {
     await app.listen({ port: config.port, host: config.host });
