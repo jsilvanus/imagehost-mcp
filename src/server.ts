@@ -11,10 +11,7 @@ async function main() {
   const config = loadConfig();
 
   const sessionService = new SessionService(config.sessionSecret);
-  const oidcService = new OidcClientService(
-    config,
-    `${config.baseUrl}/v1/auth/callback`,
-  );
+  const oidcService = new OidcClientService(config, `${config.baseUrl}/v1/auth/callback`);
   const storageService = new S3StorageService(config);
   const processor = new ImageProcessor(config.imageMaxPixels);
   const groupService = new GroupService();

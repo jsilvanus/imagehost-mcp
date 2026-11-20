@@ -1,6 +1,7 @@
 # MCP OAuth Integration with Tunnus & Client Identification
 
 ## Overview
+
 ImageHost MCP supports remote MCP clients (such as Claude Desktop, Claude Code, Cursor, and Antigravity) connecting over **Streamable HTTP** at `/mcp`.
 
 ## Protocol Flow

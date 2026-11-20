@@ -24,9 +24,7 @@ export const users = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [
-    uniqueIndex('users_oidc_issuer_sub_idx').on(t.oidcIssuer, t.oidcSub),
-  ],
+  (t) => [uniqueIndex('users_oidc_issuer_sub_idx').on(t.oidcIssuer, t.oidcSub)],
 );
 
 export const groups = pgTable(
@@ -44,9 +42,7 @@ export const groups = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [
-    uniqueIndex('groups_owner_name_idx').on(t.ownerId, t.name),
-  ],
+  (t) => [uniqueIndex('groups_owner_name_idx').on(t.ownerId, t.name)],
 );
 
 export const images = pgTable(
@@ -74,9 +70,7 @@ export const images = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [
-    uniqueIndex('images_group_sequence_idx').on(t.groupId, t.sequenceNumber),
-  ],
+  (t) => [uniqueIndex('images_group_sequence_idx').on(t.groupId, t.sequenceNumber)],
 );
 
 export const imageVariants = pgTable(
@@ -94,9 +88,7 @@ export const imageVariants = pgTable(
     byteSize: bigint('byte_size', { mode: 'number' }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [
-    uniqueIndex('image_variants_image_type_idx').on(t.imageId, t.variantType),
-  ],
+  (t) => [uniqueIndex('image_variants_image_type_idx').on(t.imageId, t.variantType)],
 );
 
 export const tags = pgTable(
@@ -109,9 +101,7 @@ export const tags = pgTable(
     name: varchar('name', { length: 128 }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [
-    uniqueIndex('tags_owner_name_idx').on(t.ownerId, t.name),
-  ],
+  (t) => [uniqueIndex('tags_owner_name_idx').on(t.ownerId, t.name)],
 );
 
 export const imageTags = pgTable(
@@ -125,9 +115,7 @@ export const imageTags = pgTable(
       .notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [
-    primaryKey({ columns: [t.imageId, t.tagId] }),
-  ],
+  (t) => [primaryKey({ columns: [t.imageId, t.tagId] })],
 );
 
 export const eventOutbox = pgTable(
@@ -145,21 +133,16 @@ export const eventOutbox = pgTable(
     publishedAt: timestamp('published_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [
-    uniqueIndex('event_outbox_event_id_idx').on(t.eventId),
-  ],
+  (t) => [uniqueIndex('event_outbox_event_id_idx').on(t.eventId)],
 );
 
-export const auditLog = pgTable(
-  'audit_log',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    userId: uuid('user_id'),
-    action: varchar('action', { length: 64 }).notNull(),
-    targetType: varchar('target_type', { length: 32 }).notNull(),
-    targetId: uuid('target_id').notNull(),
-    details: jsonb('details'),
-    actorType: varchar('actor_type', { length: 32 }).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-);
+export const auditLog = pgTable('audit_log', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id'),
+  action: varchar('action', { length: 64 }).notNull(),
+  targetType: varchar('target_type', { length: 32 }).notNull(),
+  targetId: uuid('target_id').notNull(),
+  details: jsonb('details'),
+  actorType: varchar('actor_type', { length: 32 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});

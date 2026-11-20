@@ -7,11 +7,11 @@ services:
       POSTGRES_USER: imagehost_user
       POSTGRES_PASSWORD: imagehost_pass
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U imagehost_user -d imagehost"]
+      test: ['CMD-SHELL', 'pg_isready -U imagehost_user -d imagehost']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,8 +24,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadminpassword
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - '9000:9000'
+      - '9001:9001'
     volumes:
       - s3-data:/data
 

@@ -70,15 +70,11 @@ export class OidcClientService {
     name?: string;
   }> {
     const configuration = await this.getConfiguration();
-    const tokenSet = await client.authorizationCodeGrant(
-      configuration,
-      currentUrl,
-      {
-        pkceCodeVerifier: codeVerifier,
-        expectedState,
-        expectedNonce,
-      },
-    );
+    const tokenSet = await client.authorizationCodeGrant(configuration, currentUrl, {
+      pkceCodeVerifier: codeVerifier,
+      expectedState,
+      expectedNonce,
+    });
 
     const claims = tokenSet.claims();
     if (!claims || !claims.sub) {

@@ -1,13 +1,16 @@
 # ADR 0001: Authentication & Identity Federation with Tunnus
 
 ## Context
+
 ImageHost MCP serves two user types/entrypoints:
+
 1. End-users accessing the mobile-first Progressive Web Application (PWA).
 2. Autonomous AI agents accessing MCP resources and tools.
 
 Identity must be federated with the central parish identity provider (Tunnus OIDC). Users must be unambiguously identified across sessions and devices.
 
 ## Decision
+
 1. **User Identity Key**:
    Users are identified uniquely by the tuple `(issuer, subject)` as defined by standard OIDC, with a database unique constraint. Profile information (email, name) is mutable and non-authoritative for identity mapping.
 2. **PWA Authentication**:
@@ -18,6 +21,7 @@ Identity must be federated with the central parish identity provider (Tunnus OID
    All endpoints enforce strict owner-isolation. Every query and operation checks `user_id` ownership on groups and images.
 
 ## Consequences
+
 - Single sign-on with Tunnus is seamless.
 - Agent tokens cannot be forged or hijacked for other scopes.
 - Multi-tenancy is enforced at the database query level.

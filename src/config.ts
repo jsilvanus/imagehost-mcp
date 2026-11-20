@@ -26,9 +26,7 @@ const configSchema = z.object({
   oidcIssuerUrl: z.string().default('https://kehitys.riihimaenseurakunta.fi/identity'),
   oidcClientId: z.string().default('kuva-mcp'),
   oidcClientSecret: z.string().optional().default(''),
-  sessionSecret: z
-    .string()
-    .default('0123456789012345678901234567890123456789'),
+  sessionSecret: z.string().default('0123456789012345678901234567890123456789'),
 
   // Image Limits & Retention
   imageMaxUploadBytes: z.coerce.number().default(26214400), // 25 MB

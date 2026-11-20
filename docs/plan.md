@@ -43,18 +43,18 @@ The PWA and MCP adapter communicate with the image service through the same docu
 
 ## 3. Technology choices
 
-| Area | Choice |
-|---|---|
-| Language | TypeScript |
-| Runtime | Node.js |
-| PWA | Vite + React |
-| API | REST, contract-first OpenAPI |
-| MCP | TypeScript MCP SDK, Streamable HTTP |
-| Authentication | Tunnus OIDC; OAuth 2.0 authorization code + PKCE for MCP clients |
-| Database | PostgreSQL |
-| Object storage | S3-compatible storage, VersityGW |
-| Image processing | Sharp |
-| Packaging | Docker and Docker Compose |
+| Area             | Choice                                                           |
+| ---------------- | ---------------------------------------------------------------- |
+| Language         | TypeScript                                                       |
+| Runtime          | Node.js                                                          |
+| PWA              | Vite + React                                                     |
+| API              | REST, contract-first OpenAPI                                     |
+| MCP              | TypeScript MCP SDK, Streamable HTTP                              |
+| Authentication   | Tunnus OIDC; OAuth 2.0 authorization code + PKCE for MCP clients |
+| Database         | PostgreSQL                                                       |
+| Object storage   | S3-compatible storage, VersityGW                                 |
+| Image processing | Sharp                                                            |
+| Packaging        | Docker and Docker Compose                                        |
 
 Keep the implementation modular, but do not introduce microservices prematurely. The image service may initially be one deployable Node.js application with clearly separated API, domain, worker and storage modules. The MCP adapter and PWA remain separate components.
 
@@ -113,6 +113,7 @@ A user is identified by the stable OIDC subject (issuer + subject), not by email
 ### Groups
 
 A group belongs to one owner in the MVP and has:
+
 - UUID, name and optional description.
 - Creation/update timestamps.
 - Configurable deletion-retention duration.
@@ -124,6 +125,7 @@ Groups are private by default. Keep ownership and authorization boundaries expli
 ### Images
 
 Each image has:
+
 - Immutable UUID as its canonical identifier.
 - Group ID.
 - Positive integer sequence number unique within that group.
@@ -161,11 +163,11 @@ Use foreign keys, appropriate unique constraints and indexes. At minimum enforce
 
 Create three image variants:
 
-| Variant | Target | Use |
-|---|---:|---|
-| Thumbnail | 320 px longest edge | Dense gallery and compact MCP results |
-| Preview | 1280 px longest edge | Detail view and agent inspection |
-| Original | Preserve uploaded dimensions | Full-resolution access |
+| Variant   |                       Target | Use                                   |
+| --------- | ---------------------------: | ------------------------------------- |
+| Thumbnail |          320 px longest edge | Dense gallery and compact MCP results |
+| Preview   |         1280 px longest edge | Detail view and agent inspection      |
+| Original  | Preserve uploaded dimensions | Full-resolution access                |
 
 Generated variants preserve aspect ratio. The gallery uses square, edge-to-edge cells with a consistent cover crop; do not destructively crop the stored preview or original.
 
@@ -214,6 +216,7 @@ Retain only metadata required by product behavior. Decide explicitly whether ori
 ### Camera and import UI
 
 The primary capture view should have:
+
 - Large camera preview.
 - Central shutter button.
 - Bottom-left device photo-library/import action.
@@ -226,6 +229,7 @@ Import must support selecting multiple images from the device photo library. Upl
 ### Phone photo library integration
 
 The PWA can:
+
 - Import photos selected from the phone's native photo picker.
 - Save/download service images to the device with user action.
 - Use Web Share where supported.
@@ -271,6 +275,7 @@ Deletion jobs must be idempotent and retryable. Handle partial S3 deletion safel
 Personal MVP: all access is owner-scoped. Every REST endpoint and MCP operation must enforce ownership server-side.
 
 Suggested scopes:
+
 - images:read
 - images:write
 - images:delete
@@ -291,6 +296,7 @@ All MCP image retrieval uses short-lived, presigned S3-compatible download URLs.
 Image bytes must not pass through the MCP transport or MCP adapter. This keeps large transfers out of the MCP request/response path and allows a downstream service to fetch the object independently.
 
 Requirements:
+
 - Every URL is a presigned GET for exactly one object/variant; never grant bucket-wide or prefix-wide access.
 - URL validity is exactly one hour (3600 seconds) from issuance. This is a fixed product decision, not a caller-selectable duration.
 - Provide separate URLs for thumbnail, preview and original variants. Do not return storage keys or allow callers to supply arbitrary bucket/object paths.
@@ -323,6 +329,7 @@ OpenAPI is the contract-first source for the REST API. Generate or validate type
 Suggested endpoint groups (exact paths and schemas to be finalized in API design):
 
 ### Groups
+
 - GET /v1/groups
 - POST /v1/groups
 - GET /v1/groups/{groupId}
@@ -331,6 +338,7 @@ Suggested endpoint groups (exact paths and schemas to be finalized in API design
 - GET /v1/groups/{groupId}/images
 
 ### Images
+
 - POST /v1/groups/{groupId}/uploads
 - POST /v1/uploads/{uploadId}/complete
 - GET /v1/images/{imageId}
@@ -341,6 +349,7 @@ Suggested endpoint groups (exact paths and schemas to be finalized in API design
 - POST /v1/images/{imageId}/restore
 
 ### Search and change history
+
 - GET /v1/images/search with group, tags, date and status filters.
 - Cursor-based pagination with stable ordering.
 - GET /v1/changes?after={cursor} (or equivalent) for durable change catch-up.
@@ -381,6 +390,7 @@ Use resource templates for dynamic image/group URIs. Resource URIs are not beare
 Tools perform actions or searches that do not fit resource reads.
 
 Initial tool set:
+
 - search_images — paginated search by group, tags, date, text/description and status.
 - list_group_images — paginated group listing if more convenient than reading the group listing resource.
 - create_group
@@ -401,12 +411,14 @@ MCP upload support is not required for MVP; the PWA is the primary capture/impor
 ### Subscriptions and notifications
 
 Support resource subscriptions where supported by the MCP protocol/client:
+
 - Subscribe to a group resource or its image-list resource to observe changes across the group.
 - Subscribe to individual image metadata/variant resources when useful.
 - Send resource-updated notifications after committed changes.
 - Send resource-list-changed notifications when the set of discoverable resources changes, where applicable.
 
 Internal domain events should include:
+
 - group.created, group.updated, group.archived
 - image.uploaded, image.processing.completed, image.processing.failed
 - image.metadata.updated, image.tags.updated
@@ -433,6 +445,7 @@ MCP clients vary in support for resource subscriptions, image content, prompts a
 ## 12. Events and change delivery
 
 The image service owns a durable event/outbox. The outbox is written transactionally with the relevant data mutation. A worker dispatches events to:
+
 - MCP adapter subscriptions (live, best effort).
 - PWA live-update mechanism, if/when added.
 - Future webhook or automation consumers.
@@ -444,11 +457,13 @@ The durable change feed is the recovery mechanism; notifications are only an opt
 ## 13. Deployment and configuration
 
 ### Development
+
 - Run Node.js application(s) locally.
 - Docker Compose provides PostgreSQL and optionally local S3-compatible storage for integration tests.
 - Document migrations, seed/test user setup and Tunnus development OIDC configuration.
 
 ### Staging
+
 - Pinned application image(s).
 - Docker Compose PostgreSQL.
 - S3-compatible storage configured by environment.
@@ -456,6 +471,7 @@ The durable change feed is the recovery mechanism; notifications are only an opt
 - Health checks and structured logs.
 
 ### Production
+
 - Pinned application image(s), no floating latest tag.
 - PostgreSQL provided externally by the deployment environment.
 - S3-compatible storage provided externally (VersityGW).
@@ -465,6 +481,7 @@ The durable change feed is the recovery mechanism; notifications are only an opt
 - Health/readiness endpoints and operational metrics.
 
 Suggested environment configuration:
+
 - DATABASE_URL
 - OIDC_ISSUER_URL
 - OIDC_CLIENT_ID
@@ -497,18 +514,21 @@ Do not commit real values. Provide .env.example with safe placeholders.
 ## 15. Implementation milestones
 
 ### Milestone 0 — Repository foundation
+
 - Confirm package manager, Node version and repository conventions.
 - Establish TypeScript project structure and lint/format/test commands.
 - Add Docker Compose for development PostgreSQL and required local dependencies.
 - Add architecture decision records for authentication, upload strategy and MCP SDK/version.
 
 ### Milestone 1 — Contracts and identity
+
 - Define domain types and initial PostgreSQL schema/migrations.
 - Configure Tunnus OIDC integration for the PWA.
 - Define OpenAPI skeleton and error/pagination conventions.
 - Define MCP OAuth registration/authorization approach with Tunnus.
 
 ### Milestone 2 — Image service
+
 - Implement groups and owner-scoped authorization.
 - Implement upload sessions and S3 storage.
 - Implement Sharp thumbnail/preview pipeline.
@@ -516,6 +536,7 @@ Do not commit real values. Provide .env.example with safe placeholders.
 - Implement image metadata, tags and descriptions.
 
 ### Milestone 3 — PWA
+
 - Implement login and group library.
 - Implement responsive square gallery and image detail.
 - Implement camera capture and device photo picker import.
@@ -523,6 +544,7 @@ Do not commit real values. Provide .env.example with safe placeholders.
 - Implement group retention settings and pending-deletion/restore UI.
 
 ### Milestone 4 — MCP adapter
+
 - Implement Streamable HTTP and OAuth/PKCE integration.
 - Implement resources, resource templates and tools.
 - Implement one-hour presigned URL issuance for individual and batch image downloads; verify that image bytes never pass through MCP.
@@ -530,12 +552,14 @@ Do not commit real values. Provide .env.example with safe placeholders.
 - Add MCP integration tests using representative clients.
 
 ### Milestone 5 — Events and deletion
+
 - Implement transactional outbox and durable change cursor.
 - Implement MCP group/image subscriptions and notifications.
 - Implement deletion request, restore, retention scheduler and permanent S3 cleanup.
 - Verify idempotency, audit history and missed-notification recovery.
 
 ### Milestone 6 — Release readiness
+
 - Add staging and production Docker configurations.
 - Add migrations/release procedure, health checks and observability.
 - Run end-to-end and security tests.

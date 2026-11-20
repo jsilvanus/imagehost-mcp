@@ -1,0 +1,202 @@
+import type { User, Group, ImageItem, PresignedUrl, UploadSession } from './types';
+
+const BASE = '';
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  if (!res.ok) {
+    let message = `Request failed: ${res.status}`;
+    try {
+      const err = await res.json();
+      message = err.message || err.error?.message || err.error || message;
+    } catch {
+      // ignore non-json error
+    }
+    throw new Error(message);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+export const api = {
+  // Auth
+  async getMe(): Promise<User | null> {
+    try {
+      return await request<User>('/v1/auth/me');
+    } catch {
+      return null;
+    }
+  },
+
+  async logout(): Promise<void> {
+    await request('/v1/auth/logout', { method: 'POST' });
+  },
+
+  // Groups
+  async listGroups(): Promise<Group[]> {
+    const res = await request<{ items: Group[] }>('/v1/groups');
+    return res.items;
+  },
+
+  async createGroup(data: {
+    name: string;
+    description?: string;
+    retentionHours?: number;
+  }): Promise<Group> {
+    return await request<Group>('/v1/groups', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateGroup(
+    groupId: string,
+    data: { name?: string; description?: string; retentionHours?: number },
+  ): Promise<Group> {
+    return await request<Group>(`/v1/groups/${groupId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async listGroupImages(
+    groupId: string,
+    includePendingDeletion = true,
+  ): Promise<{ items: ImageItem[]; nextCursor: number | null }> {
+    return await request<{ items: ImageItem[]; nextCursor: number | null }>(
+      `/v1/groups/${groupId}/images?limit=100&includePendingDeletion=${includePendingDeletion}`,
+    );
+  },
+
+  // Search
+  async searchImages(query?: string, tags?: string[]): Promise<ImageItem[]> {
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    if (tags && tags.length > 0) {
+      for (const t of tags) params.append('tags', t);
+    }
+    params.set('includePendingDeletion', 'true');
+    const res = await request<{ items: ImageItem[] }>(`/v1/images/search?${params.toString()}`);
+    return res.items;
+  },
+
+  // Upload Lifecycle
+  async createUploadSession(
+    groupId: string,
+    data: {
+      filename: string;
+      mediaType: string;
+      byteSize: number;
+      description?: string;
+      tags?: string[];
+    },
+  ): Promise<UploadSession> {
+    return await request<UploadSession>(`/v1/groups/${groupId}/uploads`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async uploadDirectToS3(
+    uploadUrl: string,
+    file: File | Blob,
+    onProgress?: (percent: number) => void,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', uploadUrl, true);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+
+      if (onProgress && xhr.upload) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            onProgress(Math.round((e.loaded / e.total) * 100));
+          }
+        };
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          reject(new Error(`S3 upload failed with status ${xhr.status}`));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Network error during S3 upload'));
+      xhr.ontimeout = () => reject(new Error('S3 upload timed out'));
+      xhr.send(file);
+    });
+  },
+
+  async completeUpload(uploadId: string): Promise<ImageItem> {
+    return await request<ImageItem>(`/v1/uploads/${uploadId}/complete`, {
+      method: 'POST',
+    });
+  },
+
+  // Image actions
+  async getImage(imageId: string): Promise<ImageItem> {
+    return await request<ImageItem>(`/v1/images/${imageId}`);
+  },
+
+  async getDownloadUrl(
+    imageId: string,
+    variant: 'thumbnail' | 'preview' | 'original' = 'preview',
+  ): Promise<PresignedUrl> {
+    return await request<PresignedUrl>(`/v1/images/${imageId}/download-url?variant=${variant}`);
+  },
+
+  async getBatchDownloadUrls(
+    items: Array<{ imageId: string; variant?: 'thumbnail' | 'preview' | 'original' }>,
+  ): Promise<Array<{ imageId: string; url?: string; error?: string }>> {
+    const res = await request<{
+      results: Array<{ imageId: string; url?: string; error?: string }>;
+    }>('/v1/images/batch-download-urls', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    });
+    return res.results;
+  },
+
+  async updateDescription(imageId: string, description: string): Promise<ImageItem> {
+    return await request<ImageItem>(`/v1/images/${imageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ description }),
+    });
+  },
+
+  async addTags(imageId: string, tags: string[]): Promise<ImageItem> {
+    return await request<ImageItem>(`/v1/images/${imageId}/tags`, {
+      method: 'POST',
+      body: JSON.stringify({ tags }),
+    });
+  },
+
+  async removeTags(imageId: string, tags: string[]): Promise<ImageItem> {
+    return await request<ImageItem>(`/v1/images/${imageId}/tags`, {
+      method: 'DELETE',
+      body: JSON.stringify({ tags }),
+    });
+  },
+
+  async requestDeletion(imageId: string): Promise<ImageItem> {
+    return await request<ImageItem>(`/v1/images/${imageId}/deletion`, {
+      method: 'POST',
+    });
+  },
+
+  async restoreImage(imageId: string): Promise<ImageItem> {
+    return await request<ImageItem>(`/v1/images/${imageId}/restore`, {
+      method: 'POST',
+    });
+  },
+};

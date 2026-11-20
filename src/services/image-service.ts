@@ -1,13 +1,6 @@
 import { eq, and, sql, desc, inArray, isNull } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import {
-  images,
-  imageVariants,
-  tags,
-  imageTags,
-  eventOutbox,
-  groups,
-} from '../db/schema.js';
+import { images, imageVariants, tags, imageTags, eventOutbox, groups } from '../db/schema.js';
 import type {
   ImageModel,
   VariantType,
@@ -51,10 +44,7 @@ export class ImageService {
       throw new Error('Group not found');
     }
 
-    const sequenceNumber = await this.groupService.allocateNextSequenceNumber(
-      ownerId,
-      groupId,
-    );
+    const sequenceNumber = await this.groupService.allocateNextSequenceNumber(ownerId, groupId);
 
     const [created] = await db
       .insert(images)
@@ -72,11 +62,7 @@ export class ImageService {
       .returning();
 
     const storageKey = `users/${ownerId}/images/${created.id}/original`;
-    const uploadUrl = await this.s3.createPresignedUploadUrl(
-      storageKey,
-      data.mediaType,
-      900,
-    );
+    const uploadUrl = await this.s3.createPresignedUploadUrl(storageKey, data.mediaType, 900);
 
     // Record original variant key in DB
     await db.insert(imageVariants).values({
@@ -230,7 +216,7 @@ export class ImageService {
   ): Promise<{ items: ImageModel[]; nextCursor: number | null }> {
     const limit = options?.limit ?? 50;
 
-    let query = db
+    const rows = await db
       .select()
       .from(images)
       .where(
@@ -246,14 +232,146 @@ export class ImageService {
       .orderBy(images.sequenceNumber)
       .limit(limit + 1);
 
-    const rows = await query;
     const hasMore = rows.length > limit;
-    const items = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor =
-      hasMore && items.length > 0 ? items[items.length - 1].sequenceNumber : null;
+    const items = (hasMore ? rows.slice(0, limit) : rows) as ImageModel[];
+    const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].sequenceNumber : null;
+
+    if (items.length > 0) {
+      const ids = items.map((i) => i.id);
+      const tagRows = await db
+        .select({ imageId: imageTags.imageId, name: tags.name })
+        .from(imageTags)
+        .innerJoin(tags, eq(imageTags.tagId, tags.id))
+        .where(inArray(imageTags.imageId, ids));
+
+      const tagMap = new Map<string, string[]>();
+      for (const row of tagRows) {
+        const list = tagMap.get(row.imageId) ?? [];
+        list.push(row.name);
+        tagMap.set(row.imageId, list);
+      }
+      for (const item of items) {
+        item.tags = tagMap.get(item.id) ?? [];
+      }
+    }
 
     return {
-      items: items as ImageModel[],
+      items,
+      nextCursor,
+    };
+  }
+
+  /**
+   * Search images across user's library by query string, group, or tags
+   */
+  async searchImages(
+    ownerId: string,
+    options?: {
+      query?: string;
+      groupId?: string;
+      tags?: string[];
+      limit?: number;
+      cursor?: string;
+      includePendingDeletion?: boolean;
+    },
+  ): Promise<{ items: ImageModel[]; nextCursor: string | null }> {
+    const limit = Math.min(Math.max(options?.limit ?? 50, 1), 100);
+
+    let tagImageIds: string[] | undefined;
+    if (options?.tags && options.tags.length > 0) {
+      const matchingTags = await db
+        .select({ imageId: imageTags.imageId })
+        .from(imageTags)
+        .innerJoin(tags, eq(imageTags.tagId, tags.id))
+        .where(and(eq(tags.ownerId, ownerId), inArray(tags.name, options.tags)));
+
+      tagImageIds = matchingTags.map((r) => r.imageId);
+      if (tagImageIds.length === 0) {
+        return { items: [], nextCursor: null };
+      }
+    }
+
+    let cursorDate: Date | undefined;
+    let cursorId: string | undefined;
+    if (options?.cursor) {
+      try {
+        const decoded = JSON.parse(Buffer.from(options.cursor, 'base64url').toString('utf8'));
+        if (decoded.createdAt && decoded.id) {
+          cursorDate = new Date(decoded.createdAt);
+          cursorId = decoded.id;
+        }
+      } catch {
+        // ignore malformed cursor
+      }
+    }
+
+    const conditions = [
+      eq(images.ownerId, ownerId),
+      options?.includePendingDeletion
+        ? sql`${images.deletionState} != 'deleted'`
+        : eq(images.deletionState, 'active'),
+    ];
+
+    if (options?.groupId) {
+      conditions.push(eq(images.groupId, options.groupId));
+    }
+
+    if (tagImageIds) {
+      conditions.push(inArray(images.id, tagImageIds));
+    }
+
+    if (options?.query && options.query.trim().length > 0) {
+      const q = `%${options.query.trim()}%`;
+      conditions.push(
+        sql`(${images.description} ILIKE ${q} OR ${images.originalFilename} ILIKE ${q})`,
+      );
+    }
+
+    if (cursorDate && cursorId) {
+      conditions.push(
+        sql`(${images.createdAt} < ${cursorDate} OR (${images.createdAt} = ${cursorDate} AND ${images.id} < ${cursorId}))`,
+      );
+    }
+
+    const rows = await db
+      .select()
+      .from(images)
+      .where(and(...conditions))
+      .orderBy(desc(images.createdAt), desc(images.id))
+      .limit(limit + 1);
+
+    const hasMore = rows.length > limit;
+    const items = (hasMore ? rows.slice(0, limit) : rows) as ImageModel[];
+
+    let nextCursor: string | null = null;
+    if (hasMore && items.length > 0) {
+      const last = items[items.length - 1];
+      nextCursor = Buffer.from(
+        JSON.stringify({ createdAt: last.createdAt.toISOString(), id: last.id }),
+      ).toString('base64url');
+    }
+
+    if (items.length > 0) {
+      const ids = items.map((i) => i.id);
+      const tagRows = await db
+        .select({ imageId: imageTags.imageId, name: tags.name })
+        .from(imageTags)
+        .innerJoin(tags, eq(imageTags.tagId, tags.id))
+        .where(inArray(imageTags.imageId, ids));
+
+      const tagMap = new Map<string, string[]>();
+      for (const row of tagRows) {
+        const list = tagMap.get(row.imageId) ?? [];
+        list.push(row.name);
+        tagMap.set(row.imageId, list);
+      }
+      for (const item of items) {
+        item.tags = tagMap.get(item.id) ?? [];
+      }
+    }
+
+    return {
+      items,
       nextCursor,
     };
   }
@@ -297,16 +415,10 @@ export class ImageService {
         .limit(1);
 
       if (!existingTag) {
-        [existingTag] = await db
-          .insert(tags)
-          .values({ ownerId, name })
-          .returning();
+        [existingTag] = await db.insert(tags).values({ ownerId, name }).returning();
       }
 
-      await db
-        .insert(imageTags)
-        .values({ imageId, tagId: existingTag.id })
-        .onConflictDoNothing();
+      await db.insert(imageTags).values({ imageId, tagId: existingTag.id }).onConflictDoNothing();
     }
 
     await db.insert(eventOutbox).values({
@@ -320,7 +432,11 @@ export class ImageService {
     return await this.getImage(ownerId, imageId);
   }
 
-  async removeTags(ownerId: string, imageId: string, tagNames: string[]): Promise<ImageModel | null> {
+  async removeTags(
+    ownerId: string,
+    imageId: string,
+    tagNames: string[],
+  ): Promise<ImageModel | null> {
     const image = await this.getImage(ownerId, imageId);
     if (!image) return null;
 
@@ -436,12 +552,7 @@ export class ImageService {
     const [imgVariant] = await db
       .select()
       .from(imageVariants)
-      .where(
-        and(
-          eq(imageVariants.imageId, imageId),
-          eq(imageVariants.variantType, variant),
-        ),
-      )
+      .where(and(eq(imageVariants.imageId, imageId), eq(imageVariants.variantType, variant)))
       .limit(1);
 
     if (!imgVariant) {
@@ -449,10 +560,7 @@ export class ImageService {
     }
 
     const ttlSeconds = 3600; // Fixed 1 hour per product specification
-    const url = await this.s3.createPresignedDownloadUrl(
-      imgVariant.storageKey,
-      ttlSeconds,
-    );
+    const url = await this.s3.createPresignedDownloadUrl(imgVariant.storageKey, ttlSeconds);
 
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
 
@@ -510,18 +618,12 @@ export class ImageService {
     const rows = await db
       .select()
       .from(eventOutbox)
-      .where(
-        and(
-          eq(eventOutbox.ownerId, ownerId),
-          sql`${eventOutbox.cursor} > ${afterCursor}`,
-        ),
-      )
+      .where(and(eq(eventOutbox.ownerId, ownerId), sql`${eventOutbox.cursor} > ${afterCursor}`))
       .orderBy(eventOutbox.cursor)
       .limit(limit);
 
     const changes = rows as EventOutboxModel[];
-    const lastCursor =
-      changes.length > 0 ? changes[changes.length - 1].cursor : afterCursor;
+    const lastCursor = changes.length > 0 ? changes[changes.length - 1].cursor : afterCursor;
 
     return { changes, lastCursor };
   }

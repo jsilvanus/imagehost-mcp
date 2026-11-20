@@ -5,6 +5,8 @@ export default defineConfig({
   out: './src/db/migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || 'postgres://imagehost_user:imagehost_pass@localhost:5432/imagehost',
+    url:
+      process.env.DATABASE_URL ||
+      'postgres://imagehost_user:imagehost_pass@localhost:5432/imagehost',
   },
 });

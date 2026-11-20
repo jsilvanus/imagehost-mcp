@@ -53,10 +53,7 @@ export class S3StorageService {
     return await getSignedUrl(this.client, command, { expiresIn: expiresInSeconds });
   }
 
-  async createPresignedDownloadUrl(
-    key: string,
-    expiresInSeconds = 3600,
-  ): Promise<string> {
+  async createPresignedDownloadUrl(key: string, expiresInSeconds = 3600): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,

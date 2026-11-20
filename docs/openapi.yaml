@@ -542,7 +542,7 @@ components:
           type: integer
         formattedSequence:
           type: string
-          example: "001"
+          example: '001'
         originalFilename:
           type: string
         mediaType:

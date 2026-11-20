@@ -1,0 +1,17 @@
+{
+  "name": "ImageHost Photo Library",
+  "short_name": "ImageHost",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "description": "Personal image library and MCP bridge for photo capture and AI agents",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
