@@ -279,11 +279,29 @@ Suggested scopes:
 
 Scopes are an upper bound on what a client may do; they do not replace per-user ownership checks. Deletion requires images:delete. Group retention changes require owner-authorized group write access and must not be available to ordinary agent deletion flows.
 
-### Image URLs
+### Signed image download URLs
 
-Use short-lived signed URLs or an authenticated image proxy. URLs must be scoped to one image variant and one authorized user/client, expire quickly, and never grant access to an entire bucket. Do not return permanent public object URLs.
+All MCP image retrieval uses short-lived, presigned S3-compatible download URLs. The MCP adapter is an authorized link broker, not an image proxy:
 
-MCP responses should provide URLs the agent runtime can actually fetch, not URLs that only work inside the PWA browser session. Where the MCP client supports image content directly, the adapter may return image content for appropriately sized variants. For large originals, prefer a short-lived URL or an explicit bounded download flow.
+1. The agent asks the ImageHost MCP for a download URL for a specific image and variant.
+2. The MCP adapter authenticates the caller and asks the image service to authorize the request and issue the URL.
+3. The agent passes that URL to the MCP or service that needs to consume the image.
+4. That downstream service downloads the object directly from S3-compatible storage.
+
+Image bytes must not pass through the MCP transport or MCP adapter. This keeps large transfers out of the MCP request/response path and allows a downstream service to fetch the object independently.
+
+Requirements:
+- Every URL is a presigned GET for exactly one object/variant; never grant bucket-wide or prefix-wide access.
+- URL validity is exactly one hour (3600 seconds) from issuance. This is a fixed product decision, not a caller-selectable duration.
+- Provide separate URLs for thumbnail, preview and original variants. Do not return storage keys or allow callers to supply arbitrary bucket/object paths.
+- Provide a single-image URL tool and a batch tool for requesting URLs for multiple images. Batch requests must authorize every image independently and return a per-item result so one inaccessible or unavailable image does not silently authorize others.
+- Return useful transfer metadata with each URL: image ID, variant, URL, expiry timestamp, expiry duration, content type and byte size when known.
+- Only ready, authorized images may receive new URLs. Pending-deletion images do not receive new URLs by default.
+- The URL is a bearer credential: anyone possessing it can download that one object until it expires or becomes unavailable. Never log full signed URLs, expose them in durable event payloads, or store them as persistent image metadata.
+- The one-hour expiry is the maximum validity window, not a promise that a download started near expiry will finish. S3-compatible providers generally validate the signature when the request begins; credentials, policy changes or object deletion can invalidate a URL earlier.
+- The PWA continues to use the authenticated image-service API/session; this signed-URL contract is specifically for MCP-to-agent-to-downstream-service transfer.
+
+The image service owns signing and authorization policy. The MCP adapter must not possess broad S3 credentials or construct object keys itself; it requests authorized URLs from the image service.
 
 ### General security
 
@@ -353,8 +371,8 @@ Suggested URI scheme (opaque IDs preferred; group slugs are display conveniences
 - Group resource: name, description, image count and retention policy summary.
 - Group image listing: paginated metadata and thumbnail resource references, not embedded full image data.
 - Image metadata: number, group, tags, description, dimensions, variant availability, timestamps and deletion state as permitted.
-- Thumbnail/preview: image content where client limits allow.
-- Original: image content only when reasonable; otherwise a short-lived authorized URL or explicit resource representation with media type and size metadata.
+- Image metadata and variant availability remain readable as MCP resources.
+- Do not stream image bytes as MCP resource content. Use dedicated URL-issuing tools for all image transfer; the returned presigned URL is fetched by the agent or passed to a downstream MCP/service.
 
 Use resource templates for dynamic image/group URIs. Resource URIs are not bearer credentials; every read must be authenticated and authorized. Do not expose another user's identifiers through enumeration.
 
@@ -373,6 +391,8 @@ Initial tool set:
 - request_image_deletion
 - restore_image
 - get_changes — durable change catch-up from cursor.
+- get_image_download_url — issue a one-hour presigned GET URL for one authorized image variant (thumbnail, preview or original).
+- get_group_image_download_urls (or equivalent batch operation) — issue URLs for multiple requested images/variants in one MCP call, with independent authorization and per-item success/error results.
 
 Avoid redundant tools when a resource read or REST operation is a better fit. Do not provide an immediate permanent-delete tool. The deletion tool always starts the retention workflow.
 
@@ -459,7 +479,7 @@ Suggested environment configuration:
 - IMAGE_MAX_UPLOAD_BYTES
 - IMAGE_MAX_PIXELS
 - DEFAULT_DELETION_RETENTION
-- SIGNED_URL_TTL_SECONDS
+- SIGNED_URL_TTL_SECONDS (fixed to 3600 for MCP download URLs; not user- or tool-configurable)
 
 Do not commit real values. Provide .env.example with safe placeholders.
 
@@ -505,7 +525,7 @@ Do not commit real values. Provide .env.example with safe placeholders.
 ### Milestone 4 — MCP adapter
 - Implement Streamable HTTP and OAuth/PKCE integration.
 - Implement resources, resource templates and tools.
-- Implement image content/short-lived URL delivery.
+- Implement one-hour presigned URL issuance for individual and batch image downloads; verify that image bytes never pass through MCP.
 - Implement scope and owner enforcement.
 - Add MCP integration tests using representative clients.
 
@@ -550,6 +570,6 @@ Resolve these during implementation and record decisions as short ADRs:
 - Whether original EXIF metadata is retained privately.
 - Exact group archive/delete semantics.
 - Default deletion retention and allowed owner-configurable range.
-- Whether MCP image reads return image content, short-lived URLs or both, based on client interoperability and file size.
+- Confirm S3-compatible provider behavior for presigned GET URLs, including credential lifetime and revocation characteristics; the product contract remains a fixed 3600-second URL lifetime.
 - Which MCP client applications are mandatory compatibility targets.
 - Whether the PWA needs live updates in MVP or can initially refresh/poll.
