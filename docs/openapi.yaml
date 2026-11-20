@@ -1,0 +1,674 @@
+openapi: 3.1.0
+info:
+  title: ImageHost API
+  version: 1.0.0
+  description: Contract-first REST API for personal image library, capture, and MCP adapter access.
+servers:
+  - url: /v1
+    description: Current API version
+
+paths:
+  /auth/login:
+    get:
+      summary: Initiate OIDC login with Tunnus
+      responses:
+        '302':
+          description: Redirect to Tunnus authorization endpoint
+
+  /auth/callback:
+    get:
+      summary: Handle OIDC authorization code callback
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Session established, redirect to PWA root
+
+  /auth/me:
+    get:
+      summary: Get current authenticated user profile
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      summary: Terminate session
+      responses:
+        '200':
+          description: Session cleared
+
+  /groups:
+    get:
+      summary: List user groups
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Group'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      summary: Create a new group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                retentionHours:
+                  type: integer
+                  default: 72
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+
+  /groups/{groupId}:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Get group details
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      summary: Update group metadata or retention
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                retentionHours:
+                  type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+
+  /groups/{groupId}/images:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 50
+      - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: includePendingDeletion
+        in: query
+        schema:
+          type: boolean
+          default: false
+    get:
+      summary: List images within a group
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Image'
+                  nextCursor:
+                    type: string
+                    nullable: true
+
+  /groups/{groupId}/uploads:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Request an upload session (presigned S3 PUT URL)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, mediaType, byteSize]
+              properties:
+                filename:
+                  type: string
+                mediaType:
+                  type: string
+                byteSize:
+                  type: integer
+                description:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+
+  /uploads/{uploadId}/complete:
+    parameters:
+      - name: uploadId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Complete upload and trigger Sharp processing
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+
+  /images/{imageId}:
+    parameters:
+      - name: imageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Get image metadata
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+    patch:
+      summary: Update image description or metadata
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description:
+                  type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+
+  /images/{imageId}/tags:
+    parameters:
+      - name: imageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Add tags to image
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tags]
+              properties:
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+    delete:
+      summary: Remove tags from image
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tags]
+              properties:
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+
+  /images/{imageId}/deletion:
+    parameters:
+      - name: imageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Request soft-deletion of an image
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+
+  /images/{imageId}/restore:
+    parameters:
+      - name: imageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Restore a pending-deletion image before deadline
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+
+  /images/{imageId}/download-url:
+    parameters:
+      - name: imageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: variant
+        in: query
+        schema:
+          type: string
+          enum: [original, thumbnail, preview]
+          default: preview
+    get:
+      summary: Get presigned download URL (valid for 1 hour)
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignedDownloadUrl'
+
+  /images/batch-download-urls:
+    post:
+      summary: Batch request presigned download URLs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [imageId]
+                    properties:
+                      imageId:
+                        type: string
+                        format: uuid
+                      variant:
+                        type: string
+                        enum: [original, thumbnail, preview]
+                        default: preview
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        imageId:
+                          type: string
+                          format: uuid
+                        variant:
+                          type: string
+                        url:
+                          type: string
+                        expiresAt:
+                          type: string
+                        error:
+                          type: string
+
+  /images/search:
+    get:
+      summary: Search images across library
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: groupId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: tags
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Image'
+                  nextCursor:
+                    type: string
+                    nullable: true
+
+  /changes:
+    get:
+      summary: Durable event change feed catch-up
+      parameters:
+        - name: after
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventOutbox'
+                  lastCursor:
+                    type: integer
+
+components:
+  schemas:
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        oidcIssuer:
+          type: string
+        oidcSub:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+
+    Group:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        ownerId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        retentionHours:
+          type: integer
+        status:
+          type: string
+          enum: [active, archived]
+        nextSequenceNumber:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Image:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        groupId:
+          type: string
+          format: uuid
+        ownerId:
+          type: string
+          format: uuid
+        sequenceNumber:
+          type: integer
+        formattedSequence:
+          type: string
+          example: "001"
+        originalFilename:
+          type: string
+        mediaType:
+          type: string
+        byteSize:
+          type: integer
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, processing, ready, failed]
+        deletionState:
+          type: string
+          enum: [active, pending_deletion, deleted]
+        deletionRequestedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deletionDeadline:
+          type: string
+          format: date-time
+          nullable: true
+        deletionRequestedBy:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UploadSession:
+      type: object
+      properties:
+        uploadId:
+          type: string
+          format: uuid
+        uploadUrl:
+          type: string
+        expiresInSeconds:
+          type: integer
+        expectedFields:
+          type: object
+          additionalProperties: true
+
+    PresignedDownloadUrl:
+      type: object
+      properties:
+        imageId:
+          type: string
+          format: uuid
+        variant:
+          type: string
+          enum: [original, thumbnail, preview]
+        url:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        expiresInSeconds:
+          type: integer
+          example: 3600
+        mediaType:
+          type: string
+        byteSize:
+          type: integer
+
+    EventOutbox:
+      type: object
+      properties:
+        cursor:
+          type: integer
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        groupId:
+          type: string
+          format: uuid
+          nullable: true
+        imageId:
+          type: string
+          format: uuid
+          nullable: true
+        payload:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+
+    ErrorEnvelope:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid authentication credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
