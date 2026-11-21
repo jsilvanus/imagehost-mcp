@@ -24,7 +24,7 @@ const configSchema = z.object({
 
   // OIDC (Tunnus)
   oidcIssuerUrl: z.string().default('https://kehitys.riihimaenseurakunta.fi/identity'),
-  oidcClientId: z.string().default('kuva-mcp'),
+  oidcClientId: z.string().default('kuvarasto'),
   oidcClientSecret: z.string().optional().default(''),
   sessionSecret: z.string().default('0123456789012345678901234567890123456789'),
 
