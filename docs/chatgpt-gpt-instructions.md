@@ -82,12 +82,12 @@ Whenever you generate an image using DALL-E or when the user asks you to save a 
    - You can choose either **OAuth** or **API Key**:
      - **Option A: OAuth 2.0 (Recommended for multi-user / personal library attribution)**:
        - **Authentication Type**: Select **OAuth**.
-       - **Client ID**: `kuvarasto` (or your client ID in Tunnus)
-       - **Client Secret**: `<Tunnus client secret>`
-       - **Authorization URL**: `https://kehitys.riihimaenseurakunta.fi/identity/auth`
-       - **Token URL**: `https://kehitys.riihimaenseurakunta.fi/identity/token`
+       - **Client ID**: `kuvarasto-chatgpt`
+       - **Client Secret**: `<KUVARASTO_CHATGPT_OIDC_CLIENT_SECRET>`
+       - **Authorization URL**: `https://kehitys.riihimaenseurakunta.fi/identity/auth` (or relay: `https://kehitys.riihimaenseurakunta.fi/kuvarasto/oauth/authorize`)
+       - **Token URL**: `https://kehitys.riihimaenseurakunta.fi/identity/token` (or relay: `https://kehitys.riihimaenseurakunta.fi/kuvarasto/oauth/token`)
        - **Scope**: `openid profile email`
-       - **Token Exchange Method**: Default (Basic Authorization header or Request Body)
+       - **Token Exchange Method**: Default (POST request)
      - **Option B: API Key (Simpler for personal single-user GPT)**:
        - **Authentication Type**: Select **API Key**.
        - **Auth Type**: Select **Bearer**.
