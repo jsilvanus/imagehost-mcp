@@ -15,6 +15,7 @@ x-app-env: &app-env
   S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
   BASE_URL: ${BASE_URL:?set BASE_URL (https://<domain>)}
   DOMAIN_PATH: ${DOMAIN_PATH:-}
+  BRAND_NAME: ${BRAND_NAME:-ImageHost}
   OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-${OIDC_ISSUER:-https://kehitys.riihimaenseurakunta.fi/identity}}
   OIDC_JWKS_URI: ${OIDC_JWKS_URI:-}
   OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:?set OIDC_CLIENT_ID}

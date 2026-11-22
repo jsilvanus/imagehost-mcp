@@ -21,6 +21,7 @@ export interface AuthorizationServerOptions {
     issuer?: string,
     claims?: Record<string, unknown>,
   ) => Promise<string | null>;
+  brandName?: string;
 }
 
 const LOGIN_TICKET_TTL = '10m';
@@ -44,10 +45,12 @@ function page(title: string, body: string): string {
   );
 }
 
-function loginPage(oauth: string, error?: string): string {
+function loginPage(oauth: string, error?: string, brandName = 'ImageHost'): string {
   return page(
     'MCP Sign In',
-    '<h1>Sign in to ImageHost</h1><p style="color:#64748b;font-size:0.95rem">Authorize this MCP agent to access your photo library.</p>' +
+    '<h1>Sign in to ' +
+      escapeHtml(brandName) +
+      '</h1><p style="color:#64748b;font-size:0.95rem">Authorize this MCP agent to access your photo library.</p>' +
       (error ? '<p class="error">' + escapeHtml(error) + '</p>' : '') +
       '<form method="post" action="/oauth/authorize">' +
       '<input type="hidden" name="oauth" value="' +
@@ -68,6 +71,7 @@ function consentPage(
   userName: string,
   clientName: string,
   scopes: string,
+  brandName = 'ImageHost',
 ): string {
   const scopeList = scopes
     .split(' ')
@@ -79,7 +83,9 @@ function consentPage(
     'Authorize MCP Client',
     '<h1>Authorize MCP Client</h1><p><strong>' +
       escapeHtml(clientName) +
-      '</strong> wants to connect to your ImageHost library as <strong>' +
+      '</strong> wants to connect to your ' +
+      escapeHtml(brandName) +
+      ' library as <strong>' +
       escapeHtml(userName) +
       '</strong>.</p>' +
       '<div style="margin:1rem 0;padding:0.75rem;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">' +
@@ -134,6 +140,7 @@ export async function mountAuthorizationServer(
 ): Promise<void> {
   const fetchClientMetadata = options.fetchClientMetadata ?? fetchCimdMetadata;
   const ticketAudience = issuer + '/oauth/authorize';
+  const brand = options.brandName || 'ImageHost';
 
   async function validateRequest(query: Record<string, string | undefined>) {
     if (
@@ -195,7 +202,7 @@ export async function mountAuthorizationServer(
     const scopes = q.scope ?? 'images:read images:write images:delete groups:read groups:write';
     return sendHtml(
       reply,
-      consentPage(oauth, ticket, user.name, metadata.client_name ?? q.client_id!, scopes),
+      consentPage(oauth, ticket, user.name, metadata.client_name ?? q.client_id!, scopes, brand),
       [redirectSource(q.redirect_uri!)],
     );
   }
@@ -228,7 +235,7 @@ export async function mountAuthorizationServer(
         }
       }
 
-      return sendHtml(reply, loginPage(encodeOAuth(q)));
+      return sendHtml(reply, loginPage(encodeOAuth(q), undefined, brand));
     } catch {
       return sendHtml(
         reply,
@@ -268,11 +275,11 @@ export async function mountAuthorizationServer(
     // Step 1: sign in with credentials
     if (body.action === undefined) {
       if (!body.email || !body.password) {
-        return sendHtml(reply, loginPage(oauth, 'Enter your email and password.'), [], 400);
+        return sendHtml(reply, loginPage(oauth, 'Enter your email and password.', brand), [], 400);
       }
       const user = await users.getUserByEmail(body.email);
       if (!user?.passwordHash || !(await verify(user.passwordHash, body.password))) {
-        return sendHtml(reply, loginPage(oauth, 'Invalid email or password.'), [], 401);
+        return sendHtml(reply, loginPage(oauth, 'Invalid email or password.', brand), [], 401);
       }
       return showConsent(reply, oauth, q, metadata, user);
     }
@@ -282,7 +289,7 @@ export async function mountAuthorizationServer(
     if (!user) {
       return sendHtml(
         reply,
-        loginPage(oauth, 'Your sign-in has expired. Please sign in again.'),
+        loginPage(oauth, 'Your sign-in has expired. Please sign in again.', brand),
         [],
         401,
       );

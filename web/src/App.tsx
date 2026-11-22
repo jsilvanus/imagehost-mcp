@@ -7,11 +7,12 @@ import { CameraModal } from './components/CameraModal';
 import { GroupModal } from './components/GroupModal';
 import { SearchModal } from './components/SearchModal';
 import { UploadBanner, type UploadItem } from './components/UploadBanner';
-import { api } from './api';
+import { api, getBrandName } from './api';
 import type { User, Group, ImageItem } from './types';
 import { Settings, FolderPlus } from 'lucide-react';
 
 export const App: React.FC = () => {
+  const brandName = getBrandName();
   const [user, setUser] = useState<User | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
@@ -86,6 +87,10 @@ export const App: React.FC = () => {
   useEffect(() => {
     loadLibrary();
   }, [loadLibrary]);
+
+  useEffect(() => {
+    document.title = `${brandName} — Photo Library & MCP Bridge`;
+  }, [brandName]);
 
   // Upload processor
   const processUpload = async (item: UploadItem) => {
@@ -224,7 +229,7 @@ export const App: React.FC = () => {
               gap: '1rem',
             }}
           >
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Welcome to ImageHost</h2>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Welcome to {brandName}</h2>
             <p style={{ color: 'var(--text-secondary)', maxWidth: '340px', fontSize: '0.9rem' }}>
               Your private photo library and MCP server for AI agents. Create your first group to
               start organizing photos.

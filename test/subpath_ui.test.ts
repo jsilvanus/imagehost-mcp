@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeDomainPath } from '../src/config.js';
+import { normalizeDomainPath, resolveBrandName } from '../src/config.js';
 import { buildApp } from '../src/app.js';
 
 describe('Subpath UI and normalizeDomainPath', () => {
@@ -15,7 +15,15 @@ describe('Subpath UI and normalizeDomainPath', () => {
     expect(normalizeDomainPath(undefined, 'http://localhost:3000/')).toBe('');
   });
 
-  it('serves index.html with injected base tag for subpath', async () => {
+  it('resolves brand name with fallbacks and capitalization', () => {
+    expect(resolveBrandName(undefined, undefined, undefined)).toBe('ImageHost');
+    expect(resolveBrandName('Kuvarasto')).toBe('Kuvarasto');
+    expect(resolveBrandName(undefined, undefined, 'kuvarasto')).toBe('Kuvarasto');
+    expect(resolveBrandName(undefined, 'Custom Brand')).toBe('Custom Brand');
+    expect(resolveBrandName('My App', 'Other', 'third')).toBe('My App');
+  });
+
+  it('serves index.html with injected base tag and brand name for subpath', async () => {
     const app = buildApp({
       config: {
         port: 3000,
@@ -23,6 +31,7 @@ describe('Subpath UI and normalizeDomainPath', () => {
         nodeEnv: 'development',
         baseUrl: 'https://kehitys.riihimaenseurakunta.fi/kuvarasto',
         domainPath: '/kuvarasto',
+        brandName: 'Kuvarasto',
         databaseUrl: 'postgres://localhost/dummy',
         s3Endpoint: 'http://localhost:9000',
         s3Region: 'us-east-1',
@@ -60,6 +69,8 @@ describe('Subpath UI and normalizeDomainPath', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/html');
     expect(res.body).toContain('<base data-app-base href="/kuvarasto/" />');
+    expect(res.body).toContain('<title>Kuvarasto — Photo Library & MCP Bridge</title>');
+    expect(res.body).toContain('window.__BRAND_NAME__ = "Kuvarasto"');
 
     // SPA fallback also serves injected HTML
     const spaRes = await app.inject({
@@ -68,6 +79,29 @@ describe('Subpath UI and normalizeDomainPath', () => {
     });
     expect(spaRes.statusCode).toBe(200);
     expect(spaRes.body).toContain('<base data-app-base href="/kuvarasto/" />');
+    expect(spaRes.body).toContain('<title>Kuvarasto — Photo Library & MCP Bridge</title>');
+
+    // /v1/config returns brand name
+    const configRes = await app.inject({
+      method: 'GET',
+      url: '/v1/config',
+    });
+    expect(configRes.statusCode).toBe(200);
+    expect(JSON.parse(configRes.body)).toEqual({
+      brandName: 'Kuvarasto',
+      baseUrl: 'https://kehitys.riihimaenseurakunta.fi/kuvarasto',
+      domainPath: '/kuvarasto',
+    });
+
+    // /manifest.json returns customized brand name
+    const manifestRes = await app.inject({
+      method: 'GET',
+      url: '/manifest.json',
+    });
+    expect(manifestRes.statusCode).toBe(200);
+    const manifestJson = JSON.parse(manifestRes.body);
+    expect(manifestJson.name).toBe('Kuvarasto Photo Library');
+    expect(manifestJson.short_name).toBe('Kuvarasto');
 
     // Unknown API routes return 404 JSON, not HTML
     const apiRes = await app.inject({

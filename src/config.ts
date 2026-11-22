@@ -6,6 +6,7 @@ const configSchema = z.object({
   nodeEnv: z.enum(['development', 'test', 'production']).default('development'),
   baseUrl: z.string().default('http://localhost:3000'),
   domainPath: z.string().default(''),
+  brandName: z.string().default('ImageHost'),
 
   // Database
   databaseUrl: z
@@ -89,6 +90,19 @@ export function normalizeDomainPath(value?: string, baseUrl?: string): string {
   return normalized;
 }
 
+export function resolveBrandName(
+  brandName?: string,
+  appTitle?: string,
+  appName?: string,
+): string {
+  const candidate = brandName?.trim() || appTitle?.trim() || appName?.trim();
+  if (!candidate) return 'ImageHost';
+  if (/^[a-z0-9_-]+$/.test(candidate)) {
+    return candidate.charAt(0).toUpperCase() + candidate.slice(1);
+  }
+  return candidate;
+}
+
 export function loadConfig(): Config {
   const baseUrl = process.env.BASE_URL;
   return configSchema.parse({
@@ -97,6 +111,7 @@ export function loadConfig(): Config {
     nodeEnv: process.env.NODE_ENV,
     baseUrl,
     domainPath: normalizeDomainPath(process.env.DOMAIN_PATH, baseUrl),
+    brandName: resolveBrandName(process.env.BRAND_NAME, process.env.APP_TITLE, process.env.APP_NAME),
     databaseUrl: process.env.DATABASE_URL,
     s3Endpoint: process.env.S3_ENDPOINT,
     s3Region: process.env.S3_REGION,

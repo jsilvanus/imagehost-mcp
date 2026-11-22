@@ -1,5 +1,26 @@
 import type { User, Group, ImageItem, PresignedUrl, UploadSession } from './types';
 
+declare global {
+  interface Window {
+    __APP_CONFIG__?: {
+      brandName?: string;
+    };
+    __BRAND_NAME__?: string;
+  }
+}
+
+/**
+ * Return the configured application brand name (e.g. "Kuvarasto" or "ImageHost").
+ * Checked against runtime server injection (window.__BRAND_NAME__), then Vite env, then default.
+ */
+export function getBrandName(): string {
+  if (typeof window !== 'undefined') {
+    if (window.__BRAND_NAME__) return window.__BRAND_NAME__;
+    if (window.__APP_CONFIG__?.brandName) return window.__APP_CONFIG__.brandName;
+  }
+  return ((import.meta as any).env?.VITE_BRAND_NAME as string | undefined) || 'ImageHost';
+}
+
 /**
  * Build an application-local URL that respects the runtime deployment prefix
  * injected into the document's <base> element (allowing deployment at / or under DOMAIN_PATH).
@@ -40,6 +61,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  // Config
+  async getConfig(): Promise<{ brandName: string }> {
+    try {
+      return await request<{ brandName: string }>('/v1/config');
+    } catch {
+      return { brandName: getBrandName() };
+    }
+  },
+
   // Auth
   async getMe(): Promise<User | null> {
     try {

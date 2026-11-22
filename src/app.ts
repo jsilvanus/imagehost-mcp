@@ -517,6 +517,14 @@ export function buildApp(ctx: AppContext): FastifyInstance {
     },
   );
 
+  app.get('/v1/config', async () => {
+    return {
+      brandName: ctx.config.brandName || 'ImageHost',
+      baseUrl: ctx.config.baseUrl,
+      domainPath: ctx.config.domainPath,
+    };
+  });
+
   // --- OAuth & MCP Endpoints ---
   const authStore = ctx.authStore ?? new MemoryAuthStore();
   const userStore = ctx.userStore ?? new DefaultUserStore();
@@ -536,6 +544,7 @@ export function buildApp(ctx: AppContext): FastifyInstance {
       ...ctx.authorizationOptions,
       oidcIssuerUrl,
       oidcJwksUri,
+      brandName: ctx.config.brandName,
     });
     await mountMcpHttp(mcpApp, {
       groupService: ctx.groupService,
@@ -559,6 +568,8 @@ export function buildApp(ctx: AppContext): FastifyInstance {
     const rawIndexHtml = existsSync(indexPath) ? readFileSync(indexPath, 'utf8') : '';
     const domainPath = ctx.config.domainPath ?? '';
     const baseHref = domainPath ? `${domainPath}/` : '/';
+    const brandName = ctx.config.brandName || 'ImageHost';
+
     let renderedIndexHtml = rawIndexHtml;
     if (rawIndexHtml.includes('<base data-app-base')) {
       renderedIndexHtml = rawIndexHtml.replace(
@@ -570,6 +581,18 @@ export function buildApp(ctx: AppContext): FastifyInstance {
         '<head>',
         `<head>\n    <base data-app-base href="${baseHref}" />`,
       );
+    }
+
+    renderedIndexHtml = renderedIndexHtml.replace(
+      /<title>[^<]*<\/title>/,
+      `<title>${brandName} — Photo Library & MCP Bridge</title>`,
+    );
+
+    const scriptInjection = `<script>window.__BRAND_NAME__ = ${JSON.stringify(brandName)}; window.__APP_CONFIG__ = { brandName: ${JSON.stringify(brandName)} };</script>`;
+    if (renderedIndexHtml.includes('</head>')) {
+      renderedIndexHtml = renderedIndexHtml.replace('</head>', `  ${scriptInjection}\n  </head>`);
+    } else {
+      renderedIndexHtml += `\n${scriptInjection}`;
     }
 
     app.register(fastifyStatic, {
@@ -586,6 +609,21 @@ export function buildApp(ctx: AppContext): FastifyInstance {
     };
 
     app.get('/', sendIndex);
+
+    app.get('/manifest.json', async (_req, reply) => {
+      const manifestPath = join(webDist, 'manifest.json');
+      if (existsSync(manifestPath)) {
+        try {
+          const raw = JSON.parse(readFileSync(manifestPath, 'utf8'));
+          raw.name = `${brandName} Photo Library`;
+          raw.short_name = brandName;
+          return reply.type('application/manifest+json').send(JSON.stringify(raw));
+        } catch {
+          // fallback
+        }
+      }
+      return reply.sendFile('manifest.json');
+    });
 
     app.setNotFoundHandler((req, reply) => {
       if (

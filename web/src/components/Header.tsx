@@ -1,7 +1,7 @@
 import React from 'react';
 import { Camera, FolderPlus, Search, LogOut, LogIn } from 'lucide-react';
 import type { User } from '../types';
-import { appPath } from '../api';
+import { appPath, getBrandName } from '../api';
 
 interface HeaderProps {
   user: User | null;
@@ -11,13 +11,15 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ user, onNewGroup, onOpenSearch, onLogout }) => {
+  const brandName = getBrandName();
+
   return (
     <header className="app-header">
       <div className="logo-area">
         <div className="logo-icon">
           <Camera size={18} />
         </div>
-        <span className="logo-text">ImageHost</span>
+        <span className="logo-text">{brandName}</span>
       </div>
 
       <div className="header-actions">
