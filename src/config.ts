@@ -48,6 +48,12 @@ const configSchema = z.object({
     .string()
     .transform((v) => v === 'true' || v === '1')
     .default('true'),
+
+  // ChatGPT Actions Integration
+  chatgptApiKey: z.string().optional(),
+  chatgptAllowedDomains: z.string().default('oaiusercontent.com,openai.com'),
+  chatgptMaxDownloadBytes: z.coerce.number().default(26214400), // 25 MB
+  chatgptDownloadTimeoutMs: z.coerce.number().default(15000), // 15 seconds
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -132,5 +138,9 @@ export function loadConfig(): Config {
     enableRetentionWorker: process.env.ENABLE_RETENTION_WORKER,
     outboxDispatcherIntervalMs: process.env.OUTBOX_DISPATCH_INTERVAL_MS,
     enableOutboxDispatcher: process.env.ENABLE_OUTBOX_DISPATCHER,
+    chatgptApiKey: process.env.CHATGPT_API_KEY ?? process.env.CHATGPT_BEARER_TOKEN,
+    chatgptAllowedDomains: process.env.CHATGPT_ALLOWED_DOMAINS,
+    chatgptMaxDownloadBytes: process.env.CHATGPT_MAX_DOWNLOAD_BYTES,
+    chatgptDownloadTimeoutMs: process.env.CHATGPT_DOWNLOAD_TIMEOUT_MS,
   });
 }

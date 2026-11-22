@@ -43,6 +43,17 @@ export class GroupService {
     return list as GroupModel[];
   }
 
+  async getOrCreateGroupByName(
+    ownerId: string,
+    name: string,
+    description = 'Imported from ChatGPT',
+  ): Promise<GroupModel> {
+    const list = await this.listGroups(ownerId);
+    const existing = list.find((g) => g.name.toLowerCase() === name.toLowerCase());
+    if (existing) return existing;
+    return await this.createGroup(ownerId, { name, description });
+  }
+
   async updateGroup(
     ownerId: string,
     groupId: string,

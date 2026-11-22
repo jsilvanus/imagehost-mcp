@@ -597,3 +597,18 @@ Resolve these during implementation and record decisions as short ADRs:
 - Confirm S3-compatible provider behavior for presigned GET URLs, including credential lifetime and revocation characteristics; the product contract remains a fixed 3600-second URL lifetime.
 - Which MCP client applications are mandatory compatibility targets.
 - Whether the PWA needs live updates in MVP or can initially refresh/poll.
+
+## 18. ChatGPT Custom GPT Actions Integration
+
+### Overview
+A dedicated HTTP adapter (`src/adapters/chatgpt/`) enables OpenAI Custom GPTs to import generated DALL-E images and chat media directly into ImageHost using OpenAI's `openaiFileIdRefs` file transfer mechanism.
+
+### Key Characteristics:
+- **No storage logic duplication**: The adapter reuses `ImageService`, `ImageProcessor`, and `S3StorageService` for all storage, variant generation, and sequence allocation.
+- **SSRF & Host Security**: Strict domain whitelisting (`*.oaiusercontent.com`, `*.openai.com`), DNS rebinding protection (blocking private/loopback RFC 1918 IPs), and disabled redirects prevent Server-Side Request Forgery against internal infrastructure.
+- **Signature & Content Validation**: Validates image magic bytes (PNG, JPEG, WebP, GIF) rather than relying on client-supplied headers.
+- **Dedicated Authentication**: Bearer token authentication via `CHATGPT_API_KEY` or user session/OAuth access tokens.
+- **OpenAPI 3.1 & Setup Guides**:
+  - Specification served at `/api/chatgpt/openapi.yaml` and located at `docs/openapi/chatgpt-actions.yaml`.
+  - Step-by-step GPT configuration instructions documented in `docs/chatgpt-gpt-instructions.md`.
+

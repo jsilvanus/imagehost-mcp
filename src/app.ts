@@ -30,6 +30,7 @@ import {
   type AuthorizationServerOptions,
 } from './oauth/index.js';
 import { mountMcpHttp } from './mcp/http.js';
+import { registerChatGPTActionRoutes } from './adapters/chatgpt/routes.js';
 
 export interface AppContext {
   config: Config;
@@ -685,6 +686,9 @@ export function buildApp(ctx: AppContext): FastifyInstance {
       resolveUser: ctx.authorizationOptions?.resolveUser,
     });
   });
+
+  // --- ChatGPT Actions Adapter ---
+  registerChatGPTActionRoutes(app, ctx);
 
   // --- Static Assets (PWA) ---
   const webDist = join(process.cwd(), 'web', 'dist');
