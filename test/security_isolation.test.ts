@@ -357,4 +357,15 @@ describe('Security & Isolation', () => {
     );
     expect(res.status).toBe(401);
   });
+
+  it('accepts empty JSON body on POST without FST_ERR_CTP_EMPTY_JSON_BODY error', async () => {
+    const res = await fetch(`${base}/v1/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '',
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+  });
 });

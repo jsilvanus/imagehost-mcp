@@ -37,11 +37,15 @@ export function appPath(path: string): string {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = appPath(path);
+  const headers: Record<string, string> = {};
+  if (options.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
   const res = await fetch(url, {
     ...options,
     credentials: 'include',
     headers: {
-      'Content-Type': 'application/json',
+      ...headers,
       ...options.headers,
     },
   });
@@ -80,7 +84,7 @@ export const api = {
   },
 
   async logout(): Promise<void> {
-    await request('/v1/auth/logout', { method: 'POST' });
+    await request('/v1/auth/logout', { method: 'POST', body: '{}' });
   },
 
   // Groups
@@ -185,6 +189,7 @@ export const api = {
   async completeUpload(uploadId: string): Promise<ImageItem> {
     return await request<ImageItem>(`/v1/uploads/${uploadId}/complete`, {
       method: 'POST',
+      body: '{}',
     });
   },
 
@@ -236,12 +241,14 @@ export const api = {
   async requestDeletion(imageId: string): Promise<ImageItem> {
     return await request<ImageItem>(`/v1/images/${imageId}/deletion`, {
       method: 'POST',
+      body: '{}',
     });
   },
 
   async restoreImage(imageId: string): Promise<ImageItem> {
     return await request<ImageItem>(`/v1/images/${imageId}/restore`, {
       method: 'POST',
+      body: '{}',
     });
   },
 };

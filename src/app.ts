@@ -112,6 +112,24 @@ export function buildApp(ctx: AppContext): FastifyInstance {
     },
   );
 
+  // Support JSON payloads, handling empty bodies gracefully
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      if (!body || (typeof body === 'string' && body.trim() === '')) {
+        done(null, {});
+        return;
+      }
+      try {
+        done(null, JSON.parse(body as string));
+      } catch (err: any) {
+        err.statusCode = 400;
+        done(err, undefined);
+      }
+    },
+  );
+
   // Support binary payloads for image uploads
   app.addContentTypeParser(
     'application/octet-stream',
