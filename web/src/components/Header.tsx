@@ -1,5 +1,5 @@
 import React from 'react';
-import { Camera, FolderPlus, Search, LogOut, LogIn } from 'lucide-react';
+import { Camera, FolderPlus, Search, Info, LogOut, LogIn } from 'lucide-react';
 import type { User } from '../types';
 import { appPath, getBrandName } from '../api';
 
@@ -7,10 +7,17 @@ interface HeaderProps {
   user: User | null;
   onNewGroup: () => void;
   onOpenSearch: () => void;
+  onOpenInfo: () => void;
   onLogout: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ user, onNewGroup, onOpenSearch, onLogout }) => {
+export const Header: React.FC<HeaderProps> = ({
+  user,
+  onNewGroup,
+  onOpenSearch,
+  onOpenInfo,
+  onLogout,
+}) => {
   const brandName = getBrandName();
 
   return (
@@ -23,6 +30,15 @@ export const Header: React.FC<HeaderProps> = ({ user, onNewGroup, onOpenSearch, 
       </div>
 
       <div className="header-actions">
+        <button
+          className="btn-icon"
+          title="Integrations & Setup (MCP, ChatGPT)"
+          onClick={onOpenInfo}
+          aria-label="Integrations help"
+        >
+          <Info size={18} />
+        </button>
+
         <button
           className="btn-icon"
           title="Search library"

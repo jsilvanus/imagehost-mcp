@@ -193,6 +193,7 @@ describe('ChatGPT Action HTTP Routes', () => {
         byteSize: data.byteSize,
         status: 'pending',
         sequenceNumber: 1,
+        tags: data.tagsList,
       };
       mockImages.set(id, img);
       return {
@@ -373,6 +374,11 @@ describe('ChatGPT Action HTTP Routes', () => {
       expect(imported.mime_type).toBe('image/png');
       expect(imported.url).toContain('/v1/images/');
       expect(imported.status).toBe('success');
+
+      const savedImg = mockImages.get(imported.image_id);
+      expect(savedImg.tags).toContain('ai');
+      expect(savedImg.tags).toContain('chatgpt');
+      expect(savedImg.tags).toContain('sunset');
     } finally {
       globalThis.fetch = originalFetch;
     }

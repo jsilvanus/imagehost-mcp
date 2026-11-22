@@ -136,7 +136,9 @@ export function registerChatGPTActionRoutes(app: FastifyInstance, ctx: AppContex
       groupId = group.id;
     }
 
-    const tagsList = req.body?.tags ?? ['chatgpt', 'ai-generated'];
+    const userTags = Array.isArray(req.body?.tags) ? req.body.tags : [];
+    // Ensure all action photos are always tagged with 'ai' and 'chatgpt'
+    const tagsList = Array.from(new Set([...userTags, 'ai', 'chatgpt']));
     const description = req.body?.description;
 
     const successImages: ImportedImageResult[] = [];

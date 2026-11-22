@@ -6,6 +6,7 @@ import { CaptureBar } from './components/CaptureBar';
 import { CameraModal } from './components/CameraModal';
 import { GroupModal } from './components/GroupModal';
 import { SearchModal } from './components/SearchModal';
+import { InfoModal } from './components/InfoModal';
 import { UploadBanner, type UploadItem } from './components/UploadBanner';
 import { api, getBrandName } from './api';
 import type { User, Group, ImageItem } from './types';
@@ -24,6 +25,7 @@ export const App: React.FC = () => {
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [isLiveCameraOpen, setIsLiveCameraOpen] = useState(false);
 
   // Upload queue
@@ -209,6 +211,7 @@ export const App: React.FC = () => {
           setIsGroupModalOpen(true);
         }}
         onOpenSearch={() => setIsSearchOpen(true)}
+        onOpenInfo={() => setIsInfoOpen(true)}
         onLogout={async () => {
           await api.logout();
           setUser(null);
@@ -344,6 +347,10 @@ export const App: React.FC = () => {
           onClose={() => setIsSearchOpen(false)}
           onSelectImage={(img) => setSelectedImage(img)}
         />
+      )}
+
+      {isInfoOpen && (
+        <InfoModal onClose={() => setIsInfoOpen(false)} />
       )}
 
       {isLiveCameraOpen && (
