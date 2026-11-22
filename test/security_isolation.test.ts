@@ -90,6 +90,20 @@ describe('Security & Isolation', () => {
       const lastCursor = page.length > 0 ? page[page.length - 1].cursor : after;
       return { changes: page, lastCursor };
     },
+    async saveUploadContent(userId: string, imageId: string, content: Buffer, mediaType?: string) {
+      const img = await this.getImage(userId, imageId);
+      if (!img) throw new Error('Image not found');
+      (img as any).content = content;
+      (img as any).mediaType = mediaType;
+    },
+    async getVariantBuffer(userId: string, imageId: string, _variant: string) {
+      const img = await this.getImage(userId, imageId);
+      if (!img) throw new Error('Image not found');
+      return {
+        buffer: Buffer.from('fake-image-bytes'),
+        mediaType: 'image/webp',
+      };
+    },
   };
 
   beforeAll(async () => {
@@ -299,5 +313,48 @@ describe('Security & Isolation', () => {
     expect(body.status).toBe('degraded');
     expect(body.database).toBe('disconnected');
     expect(body.error).toContain('Connection refused');
+  });
+
+  it('allows content upload via signed upload token', async () => {
+    const uploadToken = await sessionService.signUploadToken('user-a', 'img-user-a');
+    const res = await fetch(
+      `${base}/v1/uploads/img-user-a/content?token=${encodeURIComponent(uploadToken)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: Buffer.from('test-image-content'),
+      },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+  });
+
+  it('rejects content upload with invalid token', async () => {
+    const res = await fetch(`${base}/v1/uploads/img-user-a/content?token=invalid-token`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/jpeg' },
+      body: Buffer.from('test-image-content'),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('serves image content via signed download token', async () => {
+    const downloadToken = await sessionService.signDownloadToken('user-a', 'img-user-a', 'preview');
+    const res = await fetch(
+      `${base}/v1/images/img-user-a/content?variant=preview&token=${encodeURIComponent(downloadToken)}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/webp');
+    const buf = await res.arrayBuffer();
+    expect(Buffer.from(buf).toString()).toBe('fake-image-bytes');
+  });
+
+  it('rejects image content download with wrong variant in token', async () => {
+    const downloadToken = await sessionService.signDownloadToken('user-a', 'img-user-a', 'preview');
+    const res = await fetch(
+      `${base}/v1/images/img-user-a/content?variant=original&token=${encodeURIComponent(downloadToken)}`,
+    );
+    expect(res.status).toBe(401);
   });
 });

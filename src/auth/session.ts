@@ -47,4 +47,58 @@ export class SessionService {
   revokeAllSessions(userId: string): void {
     this.revokeUser(userId);
   }
+
+  async signUploadToken(userId: string, uploadId: string, expiresIn = '15m'): Promise<string> {
+    return await new jose.SignJWT({ uploadId, purpose: 'upload' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(userId)
+      .setIssuedAt()
+      .setExpirationTime(expiresIn)
+      .sign(this.key);
+  }
+
+  async verifyUploadToken(token: string, uploadId: string): Promise<{ userId: string } | null> {
+    try {
+      const { payload } = await jose.jwtVerify(token, this.key);
+      if (payload.purpose !== 'upload' || payload.uploadId !== uploadId || !payload.sub) {
+        return null;
+      }
+      return { userId: payload.sub as string };
+    } catch {
+      return null;
+    }
+  }
+
+  async signDownloadToken(
+    userId: string,
+    imageId: string,
+    variant: string,
+    expiresIn = '24h',
+  ): Promise<string> {
+    return await new jose.SignJWT({ imageId, variant, purpose: 'download' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(userId)
+      .setIssuedAt()
+      .setExpirationTime(expiresIn)
+      .sign(this.key);
+  }
+
+  async verifyDownloadToken(
+    token: string,
+    imageId: string,
+    variant?: string,
+  ): Promise<{ userId: string } | null> {
+    try {
+      const { payload } = await jose.jwtVerify(token, this.key);
+      if (payload.purpose !== 'download' || payload.imageId !== imageId || !payload.sub) {
+        return null;
+      }
+      if (variant && payload.variant && payload.variant !== variant) {
+        return null;
+      }
+      return { userId: payload.sub as string };
+    } catch {
+      return null;
+    }
+  }
 }

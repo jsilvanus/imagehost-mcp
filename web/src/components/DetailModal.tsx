@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Trash2, RefreshCw, Download, Tag as TagIcon, AlertTriangle } from 'lucide-react';
 import type { ImageItem } from '../types';
-import { api } from '../api';
+import { api, appPath } from '../api';
 
 interface DetailModalProps {
   image: ImageItem;
@@ -165,7 +165,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ image, onClose, onUpda
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             {originalUrl && (
               <a
-                href={originalUrl}
+                href={appPath(originalUrl)}
                 download={current.originalFilename}
                 target="_blank"
                 rel="noreferrer"
@@ -257,7 +257,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ image, onClose, onUpda
           >
             {previewUrl ? (
               <img
-                src={previewUrl}
+                src={appPath(previewUrl)}
                 alt={current.description || current.originalFilename}
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               />

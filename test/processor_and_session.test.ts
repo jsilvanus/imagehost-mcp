@@ -62,4 +62,42 @@ describe('SessionService', () => {
     const verified = await session.verifySession('invalid.token.here');
     expect(verified).toBeNull();
   });
+
+  it('signs and verifies upload tokens with uploadId scoping', async () => {
+    const session = new SessionService('super-secret-key-that-is-long-enough-32-chars');
+    const token = await session.signUploadToken('user-1', 'upload-abc');
+    expect(typeof token).toBe('string');
+
+    const verified = await session.verifyUploadToken(token, 'upload-abc');
+    expect(verified).toEqual({ userId: 'user-1' });
+
+    // Wrong upload ID
+    const wrongUpload = await session.verifyUploadToken(token, 'upload-wrong');
+    expect(wrongUpload).toBeNull();
+
+    // Tampered token
+    const tampered = await session.verifyUploadToken(token + 'tamper', 'upload-abc');
+    expect(tampered).toBeNull();
+  });
+
+  it('signs and verifies download tokens with variant scoping', async () => {
+    const session = new SessionService('super-secret-key-that-is-long-enough-32-chars');
+    const token = await session.signDownloadToken('user-1', 'image-xyz', 'thumbnail');
+    expect(typeof token).toBe('string');
+
+    const verified = await session.verifyDownloadToken(token, 'image-xyz', 'thumbnail');
+    expect(verified).toEqual({ userId: 'user-1' });
+
+    // Wrong variant
+    const wrongVariant = await session.verifyDownloadToken(token, 'image-xyz', 'original');
+    expect(wrongVariant).toBeNull();
+
+    // Wrong image ID
+    const wrongImage = await session.verifyDownloadToken(token, 'image-wrong', 'thumbnail');
+    expect(wrongImage).toBeNull();
+
+    // Tampered
+    const tampered = await session.verifyDownloadToken(token + 'x', 'image-xyz', 'thumbnail');
+    expect(tampered).toBeNull();
+  });
 });

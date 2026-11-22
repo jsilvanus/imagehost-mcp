@@ -155,7 +155,9 @@ export const api = {
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('PUT', uploadUrl, true);
+      const targetUrl = appPath(uploadUrl);
+      xhr.open('PUT', targetUrl, true);
+      xhr.withCredentials = true;
       xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
 
       if (onProgress && xhr.upload) {
@@ -170,12 +172,12 @@ export const api = {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve();
         } else {
-          reject(new Error(`S3 upload failed with status ${xhr.status}`));
+          reject(new Error(`Upload failed with status ${xhr.status}`));
         }
       };
 
-      xhr.onerror = () => reject(new Error('Network error during S3 upload'));
-      xhr.ontimeout = () => reject(new Error('S3 upload timed out'));
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.ontimeout = () => reject(new Error('Upload timed out'));
       xhr.send(file);
     });
   },

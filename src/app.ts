@@ -65,6 +65,7 @@ export function buildApp(ctx: AppContext): FastifyInstance {
   const isTest = ctx.config.nodeEnv === 'test';
 
   const app = Fastify({
+    bodyLimit: ctx.config.imageMaxUploadBytes,
     requestIdHeader: 'x-request-id',
     genReqId: (req) => (req.headers['x-request-id'] as string) || randomUUID(),
     logger: isTest
@@ -108,6 +109,22 @@ export function buildApp(ctx: AppContext): FastifyInstance {
       } catch (err: any) {
         done(err, undefined);
       }
+    },
+  );
+
+  // Support binary payloads for image uploads
+  app.addContentTypeParser(
+    'application/octet-stream',
+    { parseAs: 'buffer', bodyLimit: ctx.config.imageMaxUploadBytes },
+    (_req, body, done) => {
+      done(null, body);
+    },
+  );
+  app.addContentTypeParser(
+    /^image\/.+/,
+    { parseAs: 'buffer', bodyLimit: ctx.config.imageMaxUploadBytes },
+    (_req, body, done) => {
+      done(null, body);
     },
   );
 
@@ -405,6 +422,52 @@ export function buildApp(ctx: AppContext): FastifyInstance {
     return reply.code(201).send(session);
   });
 
+  app.put<{
+    Params: { uploadId: string };
+    Querystring: { token?: string };
+  }>('/v1/uploads/:uploadId/content', async (req, reply) => {
+    let userId = req.user?.userId;
+
+    if (!userId && req.query.token && ctx.sessionService) {
+      const verified = await ctx.sessionService.verifyUploadToken(
+        req.query.token,
+        req.params.uploadId,
+      );
+      if (verified) {
+        userId = verified.userId;
+      }
+    }
+
+    if (!userId) {
+      return reply
+        .code(401)
+        .send({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+
+    const bodyBuffer = req.body as Buffer;
+    if (!bodyBuffer || !Buffer.isBuffer(bodyBuffer) || bodyBuffer.length === 0) {
+      return reply
+        .code(400)
+        .send({ error: { code: 'BAD_REQUEST', message: 'Empty upload body' } });
+    }
+
+    try {
+      const contentType = (req.headers['content-type'] || 'application/octet-stream')
+        .split(';')[0]
+        .trim();
+      await ctx.imageService.saveUploadContent(
+        userId,
+        req.params.uploadId,
+        bodyBuffer,
+        contentType,
+      );
+      return reply.code(200).send({ ok: true });
+    } catch (err: any) {
+      req.log?.error?.(err, 'Failed to save upload content');
+      return reply.code(500).send({ error: { code: 'UPLOAD_FAILED', message: err.message } });
+    }
+  });
+
   app.post<{ Params: { uploadId: string } }>(
     '/v1/uploads/:uploadId/complete',
     { preHandler: [requireAuth] },
@@ -488,6 +551,50 @@ export function buildApp(ctx: AppContext): FastifyInstance {
       return image;
     },
   );
+
+  app.get<{
+    Params: { imageId: string };
+    Querystring: { variant?: 'original' | 'thumbnail' | 'preview'; token?: string };
+  }>('/v1/images/:imageId/content', async (req, reply) => {
+    const variant = req.query.variant || 'preview';
+    let userId = req.user?.userId;
+
+    if (!userId && req.query.token && ctx.sessionService) {
+      const verified = await ctx.sessionService.verifyDownloadToken(
+        req.query.token,
+        req.params.imageId,
+        variant,
+      );
+      if (verified) {
+        userId = verified.userId;
+      }
+    }
+
+    if (!userId) {
+      return reply
+        .code(401)
+        .send({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+
+    try {
+      const { buffer, mediaType } = await ctx.imageService.getVariantBuffer(
+        userId,
+        req.params.imageId,
+        variant,
+      );
+      return reply
+        .code(200)
+        .header('Content-Type', mediaType)
+        .header('Cache-Control', 'private, max-age=86400, stale-while-revalidate=3600')
+        .send(buffer);
+    } catch (err: any) {
+      if (err.message === 'Image not found' || err.message?.includes('not found')) {
+        return reply.notFound(err.message);
+      }
+      req.log?.error?.(err, 'Failed to get image variant buffer');
+      return reply.internalServerError(err.message);
+    }
+  });
 
   app.get<{
     Params: { imageId: string };

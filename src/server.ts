@@ -19,7 +19,13 @@ async function main() {
   const storageService = new S3StorageService(config);
   const processor = new ImageProcessor(config.imageMaxPixels);
   const groupService = new GroupService();
-  const imageService = new ImageService(storageService, processor, groupService);
+  const imageService = new ImageService(
+    storageService,
+    processor,
+    groupService,
+    config.baseUrl,
+    sessionService,
+  );
 
   const subscriptionManager = new SubscriptionManager();
   const outboxDispatcher = new OutboxDispatcher(subscriptionManager);

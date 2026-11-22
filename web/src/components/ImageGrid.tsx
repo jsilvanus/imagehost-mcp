@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, RefreshCw, AlertCircle, Loader2 } from 'lucide-react';
 import type { ImageItem } from '../types';
+import { appPath } from '../api';
 
 interface ImageGridProps {
   images: ImageItem[];
@@ -55,7 +56,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
 
             {/* Thumbnail Image or Status */}
             {thumbUrl ? (
-              <img src={thumbUrl} alt={img.description || img.originalFilename} loading="lazy" />
+              <img src={appPath(thumbUrl)} alt={img.description || img.originalFilename} loading="lazy" />
             ) : img.status === 'processing' ? (
               <div className="image-placeholder">
                 <Loader2 size={18} className="animate-spin" />

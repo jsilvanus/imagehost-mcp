@@ -18,12 +18,15 @@ import type {
 import type { S3StorageService } from '../storage/s3.js';
 import type { ImageProcessor } from './image-processor.js';
 import type { GroupService } from './group-service.js';
+import type { SessionService } from '../auth/session.js';
 
 export class ImageService {
   constructor(
     private s3: S3StorageService,
     private processor: ImageProcessor,
     private groupService: GroupService,
+    private baseUrl?: string,
+    private sessionService?: SessionService,
   ) {}
 
   /**
@@ -70,7 +73,14 @@ export class ImageService {
       .returning();
 
     const storageKey = `users/${ownerId}/images/${created.id}/original`;
-    const uploadUrl = await this.s3.createPresignedUploadUrl(storageKey, data.mediaType, 900);
+    let uploadUrl: string;
+    if (this.sessionService) {
+      const uploadToken = await this.sessionService.signUploadToken(ownerId, created.id);
+      const cleanBaseUrl = this.baseUrl ? this.baseUrl.replace(/\/+$/, '') : '';
+      uploadUrl = `${cleanBaseUrl}/v1/uploads/${created.id}/content?token=${encodeURIComponent(uploadToken)}`;
+    } else {
+      uploadUrl = await this.s3.createPresignedUploadUrl(storageKey, data.mediaType, 900);
+    }
 
     // Record original variant key in DB
     await db.insert(imageVariants).values({
@@ -92,6 +102,35 @@ export class ImageService {
       formattedSequence: this.formatSequence(sequenceNumber),
       expiresInSeconds: 900,
     };
+  }
+
+  /**
+   * Saves uploaded binary content for an upload session directly into S3
+   */
+  async saveUploadContent(
+    ownerId: string,
+    imageId: string,
+    content: Buffer,
+    mediaType?: string,
+  ): Promise<void> {
+    const image = await this.getImage(ownerId, imageId);
+    if (!image) {
+      throw new Error('Image not found');
+    }
+    const storageKey = `users/${ownerId}/images/${imageId}/original`;
+    const finalMediaType = mediaType || image.mediaType || 'application/octet-stream';
+
+    await this.s3.putObject(storageKey, content, finalMediaType);
+
+    await db
+      .update(imageVariants)
+      .set({ byteSize: content.length, mediaType: finalMediaType })
+      .where(and(eq(imageVariants.imageId, imageId), eq(imageVariants.variantType, 'original')));
+
+    await db
+      .update(images)
+      .set({ byteSize: content.length, mediaType: finalMediaType, updatedAt: new Date() })
+      .where(eq(images.id, imageId));
   }
 
   /**
@@ -601,7 +640,19 @@ export class ImageService {
     }
 
     const ttlSeconds = 3600; // Fixed 1 hour per product specification
-    const url = await this.s3.createPresignedDownloadUrl(imgVariant.storageKey, ttlSeconds);
+    let url: string;
+    if (this.sessionService) {
+      const downloadToken = await this.sessionService.signDownloadToken(
+        ownerId,
+        imageId,
+        variant,
+        '24h',
+      );
+      const cleanBaseUrl = this.baseUrl ? this.baseUrl.replace(/\/+$/, '') : '';
+      url = `${cleanBaseUrl}/v1/images/${imageId}/content?variant=${variant}&token=${encodeURIComponent(downloadToken)}`;
+    } else {
+      url = await this.s3.createPresignedDownloadUrl(imgVariant.storageKey, ttlSeconds);
+    }
 
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
 
@@ -613,6 +664,39 @@ export class ImageService {
       expiresInSeconds: ttlSeconds,
       mediaType: imgVariant.mediaType,
       byteSize: imgVariant.byteSize,
+    };
+  }
+
+  /**
+   * Retrieves the raw image buffer and media type for an image variant from S3
+   */
+  async getVariantBuffer(
+    ownerId: string,
+    imageId: string,
+    variant: VariantType = 'preview',
+  ): Promise<{ buffer: Buffer; mediaType: string }> {
+    const image = await this.getImage(ownerId, imageId);
+    if (!image) {
+      throw new Error('Image not found');
+    }
+    if (image.status !== 'ready') {
+      throw new Error(`Image is not ready (status: ${image.status})`);
+    }
+
+    const [imgVariant] = await db
+      .select()
+      .from(imageVariants)
+      .where(and(eq(imageVariants.imageId, imageId), eq(imageVariants.variantType, variant)))
+      .limit(1);
+
+    if (!imgVariant) {
+      throw new Error(`Variant ${variant} not found for image`);
+    }
+
+    const buffer = await this.s3.getObjectBuffer(imgVariant.storageKey);
+    return {
+      buffer,
+      mediaType: imgVariant.mediaType,
     };
   }
 
