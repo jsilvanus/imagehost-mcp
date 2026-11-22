@@ -17,6 +17,10 @@ paths:
         Receives OpenAI generated image file references, securely downloads them,
         processes and generates WebP derivatives, stores them in S3, and returns permanent URLs.
       security:
+        - OAuth2:
+            - openid
+            - profile
+            - email
         - BearerAuth: []
       requestBody:
         required: true
@@ -95,6 +99,17 @@ paths:
                 $ref: '#/components/schemas/ImportResponse'
 components:
   securitySchemes:
+    OAuth2:
+      type: oauth2
+      description: Log in with Tunnus OpenID Connect / OAuth 2.0
+      flows:
+        authorizationCode:
+          authorizationUrl: https://kehitys.riihimaenseurakunta.fi/identity/auth
+          tokenUrl: https://kehitys.riihimaenseurakunta.fi/identity/token
+          scopes:
+            openid: User identity
+            profile: User profile
+            email: User email address
     BearerAuth:
       type: http
       scheme: bearer

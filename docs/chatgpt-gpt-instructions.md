@@ -79,9 +79,19 @@ Whenever you generate an image using DALL-E or when the user asks you to save a 
    - Or open [docs/openapi/chatgpt-actions.yaml](./openapi/chatgpt-actions.yaml) and copy-paste the YAML contents directly into the Schema box.
 3. **Authentication**:
    - Click the gear/settings icon next to **Authentication**.
-   - **Authentication Type**: Select **API Key**.
-   - **Auth Type**: Select **Bearer**.
-   - **API Key**: Enter the value configured in your server's `CHATGPT_API_KEY` (or a personal user session token).
+   - You can choose either **OAuth** or **API Key**:
+     - **Option A: OAuth 2.0 (Recommended for multi-user / personal library attribution)**:
+       - **Authentication Type**: Select **OAuth**.
+       - **Client ID**: `kuvarasto` (or your client ID in Tunnus)
+       - **Client Secret**: `<Tunnus client secret>`
+       - **Authorization URL**: `https://kehitys.riihimaenseurakunta.fi/identity/auth`
+       - **Token URL**: `https://kehitys.riihimaenseurakunta.fi/identity/token`
+       - **Scope**: `openid profile email`
+       - **Token Exchange Method**: Default (Basic Authorization header or Request Body)
+     - **Option B: API Key (Simpler for personal single-user GPT)**:
+       - **Authentication Type**: Select **API Key**.
+       - **Auth Type**: Select **Bearer**.
+       - **API Key**: Enter the value configured in your server's `CHATGPT_API_KEY` (or your personal session token).
 4. **Privacy Policy**:
    - Enter your public privacy policy URL or your ImageHost base URL (e.g. `https://kehitys.riihimaenseurakunta.fi/kuvarasto`).
 5. Click **Save** (or **Update**) in the top right corner.

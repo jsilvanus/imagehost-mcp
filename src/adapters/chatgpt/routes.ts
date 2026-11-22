@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { jwtVerify } from 'jose';
 import type { AppContext } from '../../app.js';
 import { getOrCreateUser } from '../../auth/users.js';
+import { verifyTunnusToken } from '../../auth/jwt-verify.js';
 import { safeDownloadImage } from './security.js';
 import type {
   ChatGptImportRequest,
@@ -90,6 +92,37 @@ export function registerChatGPTActionRoutes(app: FastifyInstance, ctx: AppContex
       } catch {
         // invalid session token
       }
+    }
+
+    // 3. Central Tunnus OAuth 2.0 token check (RS256 with JWKS)
+    if (ctx.config.oidcIssuerUrl) {
+      try {
+        const tunnusAuth = await verifyTunnusToken(token, {
+          oidcIssuer: ctx.config.oidcIssuerUrl,
+          jwksUri: ctx.config.oidcJwksUri,
+          publicUrl: ctx.config.baseUrl,
+          userStore: ctx.userStore,
+          resolveUser: ctx.authorizationOptions?.resolveUser,
+        });
+        if (tunnusAuth?.userId) {
+          return tunnusAuth.userId;
+        }
+      } catch {
+        // not a Tunnus token, fall through to local OAuth check
+      }
+    }
+
+    // 4. Local OAuth 2.0 access token check (HS256)
+    try {
+      const jwtSecret = new TextEncoder().encode(
+        ctx.config.sessionSecret.padEnd(32, '0').slice(0, 32),
+      );
+      const { payload } = await jwtVerify(token, jwtSecret, { algorithms: ['HS256'] });
+      if (payload?.sub) {
+        return payload.sub as string;
+      }
+    } catch {
+      // not a local OAuth token
     }
 
     return null;

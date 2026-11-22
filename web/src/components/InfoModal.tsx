@@ -314,9 +314,19 @@ Whenever you generate an image using DALL-E or when the user asks you to save a 
                     <span style={{ width: '20px', height: '20px', borderRadius: '50%', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, flexShrink: 0 }}>
                       3
                     </span>
-                    <span>
-                      Under <strong>Authentication</strong>, select <strong>API Key</strong>, choose Auth Type <strong>Bearer</strong>, and enter your server's <code style={{ color: 'var(--accent-blue)', background: 'rgba(59, 130, 246, 0.1)', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>CHATGPT_API_KEY</code> or your personal bearer token.
-                    </span>
+                    <div>
+                      <span>
+                        Under <strong>Authentication</strong>, you can use either <strong>OAuth</strong> or <strong>API Key</strong>:
+                      </span>
+                      <ul style={{ margin: '0.4rem 0 0 1rem', padding: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        <li>
+                          <strong>OAuth 2.0 (Recommended for multi-user):</strong> Select OAuth, Auth URL <code style={{ color: 'var(--accent-blue)' }}>https://kehitys.riihimaenseurakunta.fi/identity/auth</code>, Token URL <code style={{ color: 'var(--accent-blue)' }}>https://kehitys.riihimaenseurakunta.fi/identity/token</code>, Scope <code style={{ color: 'var(--accent-blue)' }}>openid profile email</code>.
+                        </li>
+                        <li style={{ marginTop: '0.25rem' }}>
+                          <strong>API Key (Bearer):</strong> Select API Key, Auth Type <strong>Bearer</strong>, and enter your server's <code style={{ color: 'var(--accent-blue)' }}>CHATGPT_API_KEY</code>.
+                        </li>
+                      </ul>
+                    </div>
                   </div>
                 </div>
               </div>
