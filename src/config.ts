@@ -5,6 +5,7 @@ const configSchema = z.object({
   host: z.string().default('0.0.0.0'),
   nodeEnv: z.enum(['development', 'test', 'production']).default('development'),
   baseUrl: z.string().default('http://localhost:3000'),
+  domainPath: z.string().default(''),
 
   // Database
   databaseUrl: z
@@ -23,9 +24,10 @@ const configSchema = z.object({
     .default('true'),
 
   // OIDC (Tunnus)
-  oidcIssuerUrl: z.string().default('https://kehitys.riihimaenseurakunta.fi/identity'),
+  oidcIssuerUrl: z.string().optional().default('https://kehitys.riihimaenseurakunta.fi/identity'),
   oidcClientId: z.string().default('kuvarasto'),
   oidcClientSecret: z.string().optional().default(''),
+  oidcJwksUri: z.string().optional(),
   sessionSecret: z.string().default('0123456789012345678901234567890123456789'),
 
   // Image Limits & Retention
@@ -49,12 +51,52 @@ const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
+export function normalizeDomainPath(value?: string, baseUrl?: string): string {
+  let path = value?.trim() ?? '';
+  if (path === '' && baseUrl) {
+    try {
+      const parsed = new URL(baseUrl).pathname;
+      if (parsed !== '/' && parsed !== '') {
+        path = parsed;
+      }
+    } catch {
+      // ignore invalid URL
+    }
+  }
+  if (path === '' || path === '/') return '';
+  if (
+    !path.startsWith('/') ||
+    path.startsWith('//') ||
+    /[?#\s]/.test(path) ||
+    path.includes('\\') ||
+    path.includes('//') ||
+    /%2f|%5c/i.test(path)
+  ) {
+    throw new Error('Invalid DOMAIN_PATH: use / or an absolute URL path such as /kuvarasto');
+  }
+  let normalized = path;
+  while (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  if (
+    normalized
+      .slice(1)
+      .split('/')
+      .some((segment) => segment === '' || segment === '.' || segment === '..')
+  ) {
+    throw new Error('Invalid DOMAIN_PATH: empty, dot and dot-dot path segments are not allowed');
+  }
+  return normalized;
+}
+
 export function loadConfig(): Config {
+  const baseUrl = process.env.BASE_URL;
   return configSchema.parse({
     port: process.env.PORT,
     host: process.env.HOST,
     nodeEnv: process.env.NODE_ENV,
-    baseUrl: process.env.BASE_URL,
+    baseUrl,
+    domainPath: normalizeDomainPath(process.env.DOMAIN_PATH, baseUrl),
     databaseUrl: process.env.DATABASE_URL,
     s3Endpoint: process.env.S3_ENDPOINT,
     s3Region: process.env.S3_REGION,
@@ -65,6 +107,7 @@ export function loadConfig(): Config {
     oidcIssuerUrl: process.env.OIDC_ISSUER_URL ?? process.env.OIDC_ISSUER,
     oidcClientId: process.env.OIDC_CLIENT_ID,
     oidcClientSecret: process.env.OIDC_CLIENT_SECRET,
+    oidcJwksUri: process.env.OIDC_JWKS_URI,
     sessionSecret: process.env.SESSION_SECRET,
     imageMaxUploadBytes: process.env.IMAGE_MAX_UPLOAD_BYTES,
     imageMaxPixels: process.env.IMAGE_MAX_PIXELS,

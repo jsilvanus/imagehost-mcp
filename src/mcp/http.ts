@@ -1,11 +1,14 @@
 import type { IncomingMessage } from 'node:http';
 import type { FastifyInstance } from 'fastify';
+import type { JWTVerifyGetKey } from 'jose';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { createMcpServer, type McpServerOptions } from './server.js';
 import { verifyAccessToken } from '../oauth/jwt.js';
 import type { SubscriptionManager } from '../services/subscription-manager.js';
+import type { UserStore } from '../oauth/storage.js';
+import { verifyTunnusToken } from '../auth/jwt-verify.js';
 
 export interface McpHttpOptions {
   groupService: McpServerOptions['groupService'];
@@ -15,6 +18,15 @@ export interface McpHttpOptions {
   resource: string;
   requireAuth?: boolean;
   subscriptionManager?: SubscriptionManager;
+  oidcIssuerUrl?: string;
+  oidcJwksUri?: string;
+  jwks?: JWTVerifyGetKey;
+  userStore?: UserStore;
+  resolveUser?: (
+    sub: string,
+    issuer?: string,
+    claims?: Record<string, unknown>,
+  ) => Promise<string | null>;
 }
 
 export function wwwAuthenticate(publicUrl: string, error?: string): string {
@@ -53,24 +65,56 @@ export async function mountMcpHttp(app: FastifyInstance, options: McpHttpOptions
     if (requireAuth && !header?.startsWith('Bearer ')) return challenge();
 
     if (header?.startsWith('Bearer ')) {
-      try {
-        const token = header.slice('Bearer '.length);
-        const { payload } = await verifyAccessToken(
-          options.jwtSecret,
-          options.publicUrl,
-          options.resource,
-          token,
-        );
-        authInfo = {
-          token,
-          clientId: typeof payload.client_id === 'string' ? payload.client_id : 'oauth-client',
-          scopes: typeof payload.scope === 'string' ? payload.scope.split(' ') : [],
-          extra: {
-            ...(typeof payload.sub === 'string' ? { userId: payload.sub } : {}),
-          },
-        };
-      } catch {
-        return challenge('invalid_token');
+      const token = header.slice('Bearer '.length).trim();
+      let verified = false;
+
+      // 1. Primary layer: RS256 token verification via Tunnus OIDC if configured
+      if (options.oidcIssuerUrl) {
+        try {
+          const tunnusAuth = await verifyTunnusToken(token, {
+            oidcIssuer: options.oidcIssuerUrl,
+            jwksUri: options.oidcJwksUri,
+            publicUrl: options.publicUrl,
+            jwks: options.jwks,
+            userStore: options.userStore,
+            resolveUser: options.resolveUser,
+          });
+
+          authInfo = {
+            token,
+            clientId: tunnusAuth.clientId,
+            scopes: tunnusAuth.scopes,
+            extra: {
+              userId: tunnusAuth.userId,
+              ...tunnusAuth.extra,
+            },
+          };
+          verified = true;
+        } catch {
+          // RS256 failed or token is local HS256, fall through to local fallback
+        }
+      }
+
+      // 2. Fallback layer: local HS256 token verification
+      if (!verified) {
+        try {
+          const { payload } = await verifyAccessToken(
+            options.jwtSecret,
+            options.publicUrl,
+            options.resource,
+            token,
+          );
+          authInfo = {
+            token,
+            clientId: typeof payload.client_id === 'string' ? payload.client_id : 'oauth-client',
+            scopes: typeof payload.scope === 'string' ? payload.scope.split(' ') : [],
+            extra: {
+              ...(typeof payload.sub === 'string' ? { userId: payload.sub } : {}),
+            },
+          };
+        } catch {
+          return challenge('invalid_token');
+        }
       }
     }
 

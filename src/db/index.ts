@@ -28,4 +28,5 @@ function createSqlClient() {
 
 export const sqlClient = createSqlClient();
 export const db = drizzle(sqlClient, { schema });
+export type Database = typeof db;
 export { schema };

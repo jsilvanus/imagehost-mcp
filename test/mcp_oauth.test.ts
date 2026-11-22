@@ -226,7 +226,7 @@ describe('RFC 9728 Discovery & OAuth Protected Resource', () => {
       s3AccessKeyId: 'test',
       s3SecretAccessKey: 'test',
       s3ForcePathStyle: true,
-      oidcIssuerUrl: 'https://identity.example.com',
+      oidcIssuerUrl: undefined,
       oidcClientId: 'test-client',
       oidcClientSecret: '',
       sessionSecret: 'secret-session-secret-key-32-bytes-long!',

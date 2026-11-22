@@ -25,6 +25,9 @@ export interface AuthStore {
   consumeAuthorizationCode(code: string): AuthorizationCodeRecord | undefined;
   saveRefreshToken(record: RefreshTokenRecord): void;
   getRefreshToken(token: string): RefreshTokenRecord | undefined;
+  hasAuthorizationCode?(code: string): boolean | Promise<boolean>;
+  hasRefreshToken?(token: string): boolean | Promise<boolean>;
+  revokeUserRefreshTokens?(subject: string): void | Promise<void>;
 }
 
 export interface McpUser {
@@ -73,6 +76,25 @@ export class MemoryAuthStore implements AuthStore {
       return undefined;
     }
     return record;
+  }
+
+  hasAuthorizationCode(code: string): boolean {
+    this.cleanExpired();
+    return this.codes.has(code);
+  }
+
+  hasRefreshToken(token: string): boolean {
+    this.cleanExpired();
+    return this.refreshTokens.has(token);
+  }
+
+  revokeUserRefreshTokens(subject: string): void {
+    this.cleanExpired();
+    for (const [k, v] of this.refreshTokens) {
+      if (v.subject === subject) {
+        this.refreshTokens.delete(k);
+      }
+    }
   }
 
   private cleanExpired(): void {

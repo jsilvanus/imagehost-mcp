@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { verify } from '@node-rs/argon2';
-import { SignJWT, jwtVerify } from 'jose';
+import { SignJWT, jwtVerify, type JWTVerifyGetKey } from 'jose';
 import type { AuthStore, McpUser, UserStore } from './storage.js';
 import { fetchCimdMetadata, isCimdClientId, type CimdMetadata } from './cimd.js';
 import { randomToken, verifyS256 } from './pkce.js';
@@ -13,6 +13,14 @@ export type { CimdMetadata };
 export interface AuthorizationServerOptions {
   /** Resolves a CIMD client_id to its metadata. Replaceable in tests. */
   fetchClientMetadata?: (clientId: string) => Promise<CimdMetadata>;
+  oidcIssuerUrl?: string;
+  oidcJwksUri?: string;
+  jwks?: JWTVerifyGetKey;
+  resolveUser?: (
+    sub: string,
+    issuer?: string,
+    claims?: Record<string, unknown>,
+  ) => Promise<string | null>;
 }
 
 const LOGIN_TICKET_TTL = '10m';
@@ -194,6 +202,21 @@ export async function mountAuthorizationServer(
 
   app.get('/oauth/authorize', async (request, reply) => {
     const q = request.query as Record<string, string | undefined>;
+
+    // Relay to central Tunnus if configured and direct local auth is not requested
+    if (options.oidcIssuerUrl && q.local !== 'true' && q.direct !== 'true') {
+      const authUrl = new URL(`${options.oidcIssuerUrl.replace(/\/+$/, '')}/auth`);
+      for (const [key, value] of Object.entries(q)) {
+        if (value !== undefined) {
+          authUrl.searchParams.set(key, value);
+        }
+      }
+      if (!authUrl.searchParams.has('resource')) {
+        authUrl.searchParams.set('resource', resource);
+      }
+      return reply.redirect(authUrl.toString());
+    }
+
     try {
       const metadata = await validateRequest(q);
 
@@ -292,68 +315,154 @@ export async function mountAuthorizationServer(
     return reply.redirect(target.toString());
   });
 
+  async function handleLocalCodeExchange(
+    b: Record<string, string | undefined>,
+    reply: FastifyReply,
+  ) {
+    const code = b.code ? authStore.consumeAuthorizationCode(b.code) : undefined;
+    if (
+      !code ||
+      b.client_id !== code.clientId ||
+      b.redirect_uri !== code.redirectUri ||
+      !b.code_verifier ||
+      !verifyS256(b.code_verifier, code.challenge)
+    ) {
+      return reply.code(400).send({ error: 'invalid_grant' });
+    }
+    const access = await issueAccessToken(
+      secret,
+      issuer,
+      resource,
+      code.subject,
+      code.clientId,
+      code.scope,
+    );
+    const refreshToken = randomToken();
+    authStore.saveRefreshToken({
+      token: refreshToken,
+      clientId: code.clientId,
+      subject: code.subject,
+      scope: code.scope,
+      expires: Date.now() + 30 * 86_400_000,
+    });
+    return reply.send({
+      access_token: access,
+      token_type: 'Bearer',
+      expires_in: 3600,
+      refresh_token: refreshToken,
+      scope: code.scope,
+    });
+  }
+
+  async function handleLocalRefreshExchange(
+    b: Record<string, string | undefined>,
+    reply: FastifyReply,
+  ) {
+    const refreshToken = b.refresh_token ? authStore.getRefreshToken(b.refresh_token) : undefined;
+    if (!refreshToken || b.client_id !== refreshToken.clientId) {
+      return reply.code(400).send({ error: 'invalid_grant' });
+    }
+    if (!(await users.getUser(refreshToken.subject))) {
+      return reply.code(400).send({ error: 'invalid_grant' });
+    }
+    const access = await issueAccessToken(
+      secret,
+      issuer,
+      resource,
+      refreshToken.subject,
+      refreshToken.clientId,
+      refreshToken.scope,
+    );
+    return reply.send({
+      access_token: access,
+      token_type: 'Bearer',
+      expires_in: 3600,
+      scope: refreshToken.scope,
+    });
+  }
+
   app.post('/oauth/token', async (request, reply) => {
     const b = request.body as Record<string, string | undefined>;
     reply.header('Cache-Control', 'no-store'); // RFC 6749 §5.1
 
     if (b.grant_type === 'authorization_code') {
-      const code = b.code ? authStore.consumeAuthorizationCode(b.code) : undefined;
-      if (
-        !code ||
-        b.client_id !== code.clientId ||
-        b.redirect_uri !== code.redirectUri ||
-        !b.code_verifier ||
-        !verifyS256(b.code_verifier, code.challenge)
-      ) {
-        return reply.code(400).send({ error: 'invalid_grant' });
+      const isLocal =
+        b.code && authStore.hasAuthorizationCode
+          ? await authStore.hasAuthorizationCode(b.code)
+          : false;
+
+      if (isLocal) {
+        return handleLocalCodeExchange(b, reply);
       }
-      const access = await issueAccessToken(
-        secret,
-        issuer,
-        resource,
-        code.subject,
-        code.clientId,
-        code.scope,
-      );
-      const refreshToken = randomToken();
-      authStore.saveRefreshToken({
-        token: refreshToken,
-        clientId: code.clientId,
-        subject: code.subject,
-        scope: code.scope,
-        expires: Date.now() + 30 * 86_400_000,
-      });
-      return {
-        access_token: access,
-        token_type: 'Bearer',
-        expires_in: 3600,
-        refresh_token: refreshToken,
-        scope: code.scope,
-      };
+
+      if (options.oidcIssuerUrl) {
+        try {
+          const formBody = new URLSearchParams();
+          for (const [key, value] of Object.entries(b)) {
+            if (value !== undefined) formBody.set(key, value);
+          }
+          if (!formBody.has('resource')) {
+            formBody.set('resource', resource);
+          }
+
+          const response = await fetch(`${options.oidcIssuerUrl.replace(/\/+$/, '')}/token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              Accept: 'application/json',
+            },
+            body: formBody.toString(),
+          });
+          const data = await response.json().catch(() => null);
+          if (data) {
+            return reply.code(response.status).send(data);
+          }
+        } catch {
+          // Relay failed, fall through to local fallback
+        }
+      }
+
+      return handleLocalCodeExchange(b, reply);
     }
 
     if (b.grant_type === 'refresh_token') {
-      const refreshToken = b.refresh_token ? authStore.getRefreshToken(b.refresh_token) : undefined;
-      if (!refreshToken || b.client_id !== refreshToken.clientId) {
-        return reply.code(400).send({ error: 'invalid_grant' });
+      const isLocal =
+        b.refresh_token && authStore.hasRefreshToken
+          ? await authStore.hasRefreshToken(b.refresh_token)
+          : false;
+
+      if (isLocal) {
+        return handleLocalRefreshExchange(b, reply);
       }
-      if (!(await users.getUser(refreshToken.subject))) {
-        return reply.code(400).send({ error: 'invalid_grant' });
+
+      if (options.oidcIssuerUrl) {
+        try {
+          const formBody = new URLSearchParams();
+          for (const [key, value] of Object.entries(b)) {
+            if (value !== undefined) formBody.set(key, value);
+          }
+          if (!formBody.has('resource')) {
+            formBody.set('resource', resource);
+          }
+
+          const response = await fetch(`${options.oidcIssuerUrl.replace(/\/+$/, '')}/token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              Accept: 'application/json',
+            },
+            body: formBody.toString(),
+          });
+          const data = await response.json().catch(() => null);
+          if (data) {
+            return reply.code(response.status).send(data);
+          }
+        } catch {
+          // Relay failed, fall through to local fallback
+        }
       }
-      const access = await issueAccessToken(
-        secret,
-        issuer,
-        resource,
-        refreshToken.subject,
-        refreshToken.clientId,
-        refreshToken.scope,
-      );
-      return {
-        access_token: access,
-        token_type: 'Bearer',
-        expires_in: 3600,
-        scope: refreshToken.scope,
-      };
+
+      return handleLocalRefreshExchange(b, reply);
     }
 
     return reply.code(400).send({ error: 'unsupported_grant_type' });

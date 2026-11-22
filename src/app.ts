@@ -19,6 +19,7 @@ import { ImageService } from './services/image-service.js';
 import type { SubscriptionManager } from './services/subscription-manager.js';
 import type { OutboxDispatcher } from './services/outbox-dispatcher.js';
 import type { RetentionWorker } from './workers/retention-worker.js';
+import { processBackchannelLogout } from './auth/backchannel.js';
 import {
   mountOAuthMetadata,
   mountAuthorizationServer,
@@ -204,7 +205,10 @@ export function buildApp(ctx: AppContext): FastifyInstance {
           return reply.badRequest('Missing OIDC state cookie');
         }
         const { state, nonce, codeVerifier } = JSON.parse(stateCookie);
-        const currentUrl = new URL(req.url, ctx.config.baseUrl);
+        const cleanBaseUrl = ctx.config.baseUrl.replace(/\/+$/, '');
+        const currentUrl = new URL(
+          `${cleanBaseUrl}${req.url.startsWith('/') ? req.url : `/${req.url}`}`,
+        );
 
         const claims = await ctx.oidcService.handleCallback(currentUrl, state, nonce, codeVerifier);
         const user = await getOrCreateUser(claims.issuer, claims.sub, {
@@ -228,7 +232,8 @@ export function buildApp(ctx: AppContext): FastifyInstance {
           maxAge: 30 * 24 * 3600,
         });
 
-        return reply.redirect('/');
+        const targetPath = ctx.config.domainPath ? `${ctx.config.domainPath}/` : '/';
+        return reply.redirect(targetPath);
       } catch (err: any) {
         return reply.badRequest(`Authentication callback failed: ${err.message}`);
       }
@@ -243,6 +248,58 @@ export function buildApp(ctx: AppContext): FastifyInstance {
     reply.clearCookie('imagehost_session', { path: '/' });
     return { ok: true };
   });
+
+  // --- OIDC Back-Channel Logout & Revocation (RFC 8417) ---
+  const handleBackchannel = async (req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const body = (req.body as Record<string, unknown>) ?? {};
+      const logoutToken =
+        typeof body.logout_token === 'string'
+          ? body.logout_token
+          : typeof (req.query as any)?.logout_token === 'string'
+            ? (req.query as any).logout_token
+            : undefined;
+
+      if (!logoutToken) {
+        return reply.code(400).send({ error: 'invalid_request', message: 'Missing logout_token' });
+      }
+
+      const oidcIssuer =
+        ctx.authorizationOptions?.oidcIssuerUrl !== undefined
+          ? ctx.authorizationOptions.oidcIssuerUrl
+          : ctx.config.oidcIssuerUrl;
+
+      if (!oidcIssuer) {
+        return reply
+          .code(400)
+          .send({ error: 'invalid_request', message: 'OIDC issuer not configured' });
+      }
+
+      await processBackchannelLogout(logoutToken.trim(), {
+        oidcIssuer,
+        jwksUri: ctx.authorizationOptions?.oidcJwksUri ?? ctx.config.oidcJwksUri,
+        oidcClientId: ctx.config.oidcClientId,
+        publicUrl: ctx.config.baseUrl,
+        sessionService: ctx.sessionService,
+        authStore,
+        userStore,
+        jwks: ctx.authorizationOptions?.jwks,
+        resolveUser: ctx.authorizationOptions?.resolveUser,
+      });
+
+      return reply.code(200).send({ ok: true });
+    } catch (err: any) {
+      req.log?.warn?.({ err }, 'Back-channel logout failed');
+      return reply.code(400).send({
+        error: 'invalid_request',
+        message: err.message || 'Back-channel logout failed',
+      });
+    }
+  };
+
+  app.post('/v1/auth/backchannel', handleBackchannel);
+  app.post('/oidc/backchannel', handleBackchannel);
+  app.post('/mcp/backchannel', handleBackchannel);
 
   // --- Group Routes ---
   app.get('/v1/groups', { preHandler: [requireAuth] }, async (req) => {
@@ -467,17 +524,19 @@ export function buildApp(ctx: AppContext): FastifyInstance {
   const publicUrl = ctx.config.baseUrl;
   const resource = `${publicUrl}/mcp`;
 
+  const oidcIssuerUrl =
+    ctx.authorizationOptions?.oidcIssuerUrl !== undefined
+      ? ctx.authorizationOptions.oidcIssuerUrl
+      : ctx.config.oidcIssuerUrl;
+  const oidcJwksUri = ctx.authorizationOptions?.oidcJwksUri ?? ctx.config.oidcJwksUri;
+
   app.register(async (mcpApp) => {
-    await mountOAuthMetadata(mcpApp, publicUrl);
-    await mountAuthorizationServer(
-      mcpApp,
-      publicUrl,
-      resource,
-      jwtSecret,
-      authStore,
-      userStore,
-      ctx.authorizationOptions,
-    );
+    await mountOAuthMetadata(mcpApp, publicUrl, { oidcIssuerUrl });
+    await mountAuthorizationServer(mcpApp, publicUrl, resource, jwtSecret, authStore, userStore, {
+      ...ctx.authorizationOptions,
+      oidcIssuerUrl,
+      oidcJwksUri,
+    });
     await mountMcpHttp(mcpApp, {
       groupService: ctx.groupService,
       imageService: ctx.imageService,
@@ -485,16 +544,48 @@ export function buildApp(ctx: AppContext): FastifyInstance {
       publicUrl,
       jwtSecret,
       resource,
+      oidcIssuerUrl,
+      oidcJwksUri,
+      jwks: ctx.authorizationOptions?.jwks,
+      userStore,
+      resolveUser: ctx.authorizationOptions?.resolveUser,
     });
   });
 
   // --- Static Assets (PWA) ---
   const webDist = join(process.cwd(), 'web', 'dist');
   if (existsSync(webDist)) {
+    const indexPath = join(webDist, 'index.html');
+    const rawIndexHtml = existsSync(indexPath) ? readFileSync(indexPath, 'utf8') : '';
+    const domainPath = ctx.config.domainPath ?? '';
+    const baseHref = domainPath ? `${domainPath}/` : '/';
+    let renderedIndexHtml = rawIndexHtml;
+    if (rawIndexHtml.includes('<base data-app-base')) {
+      renderedIndexHtml = rawIndexHtml.replace(
+        /<base data-app-base[^>]*>/,
+        `<base data-app-base href="${baseHref}" />`,
+      );
+    } else if (rawIndexHtml.includes('<head>')) {
+      renderedIndexHtml = rawIndexHtml.replace(
+        '<head>',
+        `<head>\n    <base data-app-base href="${baseHref}" />`,
+      );
+    }
+
     app.register(fastifyStatic, {
       root: webDist,
       prefix: '/',
+      index: false,
     });
+
+    const sendIndex = (_req: FastifyRequest, reply: FastifyReply) => {
+      reply
+        .type('text/html; charset=utf-8')
+        .header('cache-control', 'no-cache')
+        .send(renderedIndexHtml);
+    };
+
+    app.get('/', sendIndex);
 
     app.setNotFoundHandler((req, reply) => {
       if (
@@ -505,7 +596,7 @@ export function buildApp(ctx: AppContext): FastifyInstance {
       ) {
         return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Not found' } });
       }
-      return reply.sendFile('index.html');
+      return sendIndex(req, reply);
     });
   }
 

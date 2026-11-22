@@ -1,6 +1,7 @@
 import React from 'react';
 import { Camera, FolderPlus, Search, LogOut, LogIn } from 'lucide-react';
 import type { User } from '../types';
+import { appPath } from '../api';
 
 interface HeaderProps {
   user: User | null;
@@ -57,7 +58,7 @@ export const Header: React.FC<HeaderProps> = ({ user, onNewGroup, onOpenSearch, 
           </div>
         ) : (
           <a
-            href="/v1/auth/login"
+            href={appPath('/v1/auth/login')}
             className="btn-icon"
             style={{ textDecoration: 'none' }}
             title="Sign In with Tunnus OIDC"

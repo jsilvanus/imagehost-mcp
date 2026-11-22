@@ -1,9 +1,22 @@
 import type { User, Group, ImageItem, PresignedUrl, UploadSession } from './types';
 
-const BASE = '';
+/**
+ * Build an application-local URL that respects the runtime deployment prefix
+ * injected into the document's <base> element (allowing deployment at / or under DOMAIN_PATH).
+ */
+export function appPath(path: string): string {
+  if (typeof document === 'undefined') return path;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  const href = document.querySelector('base[data-app-base]')?.getAttribute('href') ?? '/';
+  const pathname = new URL(href, window.location.origin).pathname;
+  const basePath = pathname.endsWith('/') ? pathname : `${pathname}/`;
+  const relativePath = path.startsWith('/') ? path.slice(1) : path;
+  return `${basePath}${relativePath}`;
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const url = appPath(path);
+  const res = await fetch(url, {
     ...options,
     credentials: 'include',
     headers: {

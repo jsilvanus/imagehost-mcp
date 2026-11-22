@@ -11,6 +11,7 @@ export interface SessionPayload {
 
 export class SessionService {
   private key: Uint8Array;
+  private revokedUsers = new Map<string, number>();
 
   constructor(secret: string) {
     // Ensure key is 32 bytes or hash it
@@ -28,9 +29,22 @@ export class SessionService {
   async verifySession(token: string): Promise<SessionPayload | null> {
     try {
       const { payload } = await jose.jwtVerify(token, this.key);
-      return payload as unknown as SessionPayload;
+      const session = payload as unknown as SessionPayload & { iat?: number };
+      const revokedAt = this.revokedUsers.get(session.userId);
+      if (revokedAt !== undefined && session.iat !== undefined && session.iat * 1000 <= revokedAt) {
+        return null;
+      }
+      return session;
     } catch {
       return null;
     }
+  }
+
+  revokeUser(userId: string): void {
+    this.revokedUsers.set(userId, Date.now());
+  }
+
+  revokeAllSessions(userId: string): void {
+    this.revokeUser(userId);
   }
 }

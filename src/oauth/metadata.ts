@@ -1,6 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 
-export async function mountOAuthMetadata(app: FastifyInstance, publicUrl: string): Promise<void> {
+export interface OAuthMetadataOptions {
+  oidcIssuerUrl?: string;
+}
+
+export async function mountOAuthMetadata(
+  app: FastifyInstance,
+  publicUrl: string,
+  options?: OAuthMetadataOptions,
+): Promise<void> {
   const supportedScopes = [
     'images:read',
     'images:write',
@@ -9,6 +17,8 @@ export async function mountOAuthMetadata(app: FastifyInstance, publicUrl: string
     'groups:write',
     'mcp',
   ];
+
+  const authServer = options?.oidcIssuerUrl || publicUrl;
 
   const metadata = {
     issuer: publicUrl,
@@ -25,7 +35,7 @@ export async function mountOAuthMetadata(app: FastifyInstance, publicUrl: string
 
   const protectedResource = {
     resource: publicUrl + '/mcp',
-    authorization_servers: [publicUrl],
+    authorization_servers: [authServer],
     scopes_supported: supportedScopes,
     bearer_methods_supported: ['header'],
   };
